@@ -1,0 +1,7 @@
+cvxpy
+pandas
+numpy
+requests
+matplotlib
+seaborn
+scipy

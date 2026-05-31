@@ -2,11 +2,30 @@
 .DS_Store
 Thumbs.db
 
-# MATLAB autosaves / generated files
-*.asv
-*.m~
-slprj/
-codegen/
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Environment variables
+.env
+.env.*
 
 # VS Code
 .vscode/*.log
