@@ -20,7 +20,7 @@ The goal of this stage was to build the minimum viable version of the scheduling
 
 ## 2. System Description
 
-The modelled system represents the Octopus Energy Zero Bills domestic installation specification:
+The modelled system represents a typical domestic UK PV–BESS installation. The parameter values below are used as the baseline for the v1 synthetic case and will form one scenario within the broader parameter study in later stages:
 
 | Component | Specification |
 |---|---|
@@ -163,15 +163,19 @@ tests/
 
 ### 6.3 Interpretation of the Dispatch Plot
 
-The most notable feature of the dispatch plot is that **the battery does not cycle at all** — both the charge and discharge lines are flat at zero, and the SOC remains constant at 50% throughout the day. This is not a bug; it is the correct economic decision given a 5p/kWh degradation cost.
+The dispatch plot shows active battery cycling, with the optimiser pursuing a **demand-shifting strategy** rather than pure grid-to-export arbitrage. The key behaviours visible in the plot are as follows.
 
-To understand why: the potential revenue from grid-charge-then-export arbitrage (buy at 7p, sell at 15p via SEG) must be weighed against the cost of doing so. Charging 1 kWh from the grid requires importing $1/\eta_c = 1.053$ kWh at 7p = 7.37p, and the degradation penalty applies to both the charge and discharge throughput. For a full import-charge-discharge-export cycle delivering 1 kWh to the grid:
+**Overnight cheap-rate charging (04:00–06:00).** Grid import ramps up to the 3 kW maximum and the battery charges at the same rate, raising SOC from ~47% to ~90% (near the upper bound). This exploits the 7p/kWh cheap rate to pre-fill the battery ahead of the expensive daytime period.
 
-$$\text{Revenue} = 15\text{p}, \quad \text{Import cost} = 7.37\text{p}, \quad \text{Degradation} = (1.053 + 1) \times 5\text{p} = 10.3\text{p}$$
+**Morning peak discharge (07:00–08:00).** As the tariff switches to 28p/kWh, the battery discharges at ~1 kW to cover the 1.5 kW morning demand peak, with rising PV generation covering the remainder. Grid import falls to zero. Surplus PV is exported to the grid at the 15p/kWh SEG rate. SOC falls as the battery is drawn down.
 
-$$\text{Net} = 15 - 7.37 - 10.3 = -2.67\text{p} \quad \text{(a loss)}$$
+**Daytime PV export (08:00–17:00).** With PV generation peaking at 2 kW and demand at only 0.5 kW baseline, the surplus is exported directly. There are two additional brief battery charge pulses during this window (visible at ~08:00 and ~14:00) where excess PV that cannot be immediately exported is stored rather than curtailed. SOC plateaus in the ~72–83% range.
 
-The optimiser correctly identifies this as unprofitable and instead exports PV directly to the grid during the day and imports from the grid to cover demand at night and at the morning and evening peaks.
+**Evening peak discharge (18:00–22:00).** The battery discharges at its maximum 1.5 kW throughout the entire evening peak, fully covering demand without any grid import. SOC falls from ~83% to ~20% (near the lower bound).
+
+**Terminal SOC restoration (23:00).** Grid import spikes sharply at the end of the day to recharge the battery back to its initial 50% SOC, satisfying the terminal constraint. This import occurs at the cheap overnight rate (23:00 falls within the 23:00–07:00 window), so the cost is low.
+
+**Why demand-shifting is viable but pure grid-to-export arbitrage is not.** The degradation cost of 5p/kWh makes the grid-charge-then-export cycle unprofitable: buying at 7p/kWh and selling at 15p/kWh yields only an 8p margin, which is insufficient to cover the ~10.3p degradation cost per kWh delivered. However, demand-shifting — storing cheap-rate energy at 7p/kWh and using it to displace expensive 28p/kWh peak imports — saves 21p/kWh on avoided imports, which comfortably exceeds the degradation penalty. The optimiser correctly distinguishes between these two strategies and pursues only the profitable one.
 
 ### 6.4 Sensitivity to Degradation Cost
 
@@ -220,7 +224,7 @@ All five tests pass.
 - **Single day, no seasonality.** A single stylised summer day cannot capture the seasonal variation in PV output that dominates annual economics.
 - **Synthetic profiles.** PV and demand profiles are smooth and symmetric; real profiles are noisy, asymmetric, and correlated in ways that affect optimal dispatch.
 - **Flat export price.** Real Agile Outgoing rates vary half-hourly and can be negative — this is a potentially large driver of battery behaviour that is not captured.
-- **No grid services revenue.** The model captures retail arbitrage only. Ancillary service revenue, which likely forms part of the Octopus zero-bills claim, is excluded by design at this stage.
+- **No grid services revenue.** The model captures retail arbitrage only. Revenue from ancillary services (e.g. Dynamic Containment, Balancing Mechanism participation) is excluded by design and retained as a stated scope limitation.
 - **Static degradation cost.** The throughput cost is assumed constant per kWh regardless of depth of discharge, temperature, or C-rate. These dependencies exist in real batteries and will affect lifetime estimates.
 
 ---
@@ -231,10 +235,10 @@ The following changes are planned for v2, in order of priority:
 
 1. **Half-hourly resolution.** Refactor all profiles and constraints to use $\Delta t = 0.5$ hours, matching the Agile tariff data format.
 
-2. **Real Octopus Agile price data.** Implement a data fetching script (`scripts/fetch_agile_prices.py`) using the Octopus Energy API to pull historical half-hourly import and export prices for a full calendar year.
+2. **Real Agile tariff data.** Implement a data fetching script (`scripts/fetch_agile_prices.py`) using the Octopus Energy API to pull historical half-hourly import and export prices for a full calendar year.
 
 3. **Real PV and demand profiles.** Source realistic GB household demand profiles (e.g. from UKPN or Elexon open datasets) and PV generation data (e.g. from PVGIS or a synthetic TMY-based model calibrated to a UK location), replacing the synthetic profiles.
 
 4. **Multi-day rolling horizon.** Extend the single-day model to simulate a full year day-by-day, carrying the terminal SOC from one day forward as the initial SOC of the next. This enables annual energy cost and degradation to be computed.
 
-5. **Annual results and zero-bills assessment.** Compute total annual import cost, export revenue, and degradation cost; compare net cost against the counterfactual (grid-only household); quantify the shortfall from zero bills and the implied ancillary service revenue required to close it.
+5. **Annual viability assessment.** Compute total annual import cost, export revenue, and degradation cost; compare net cost against the counterfactual (grid-only household); quantify the net savings and simple payback period as functions of location, system size, and tariff type.

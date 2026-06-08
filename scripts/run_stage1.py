@@ -94,7 +94,9 @@ def _plot(result, dt_hours: float) -> None:
     ax1.grid(True, alpha=0.3)
 
     ax2 = ax1.twinx()
-    ax2.plot(hours, schedule["soc"], label="SOC", color="grey", lw=2, alpha=0.6)
+    soc_hours = list(hours) + [hours[-1] + dt_hours]
+    soc_values = list(schedule["soc"]) + [schedule["soc_end"].iloc[-1]]
+    ax2.plot(soc_hours, soc_values, label="SOC", color="grey", lw=2, alpha=0.6)
     ax2.set_ylabel("State of charge (fraction)")
     ax2.set_ylim(0, 1)
 

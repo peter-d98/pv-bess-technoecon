@@ -1,18 +1,18 @@
 # PV–BESS Techno-Economic Analysis
 
-MSc dissertation project investigating the techno-economic viability of domestic PV–battery energy storage systems (BESS), with a focus on evaluating Octopus Energy's "zero-bills" claim on a whole-life cost basis.
+MSc dissertation project investigating the techno-economic viability of domestic PV–battery energy storage systems (BESS) through a systematic parameter study across UK locations, system sizes, and tariff structures.
 
 ## Research Question
 
-Is the Octopus Energy zero-bills claim for domestic PV–BESS viable over the system lifetime when battery degradation costs are properly accounted for? How much of the claim depends on retail tariff arbitrage alone, and what ancillary service revenue is implicitly required to close the gap?
+Under what conditions is domestic PV–BESS economically viable in the UK when battery degradation costs are explicitly accounted for in the dispatch optimisation? How do location, system sizing, and tariff structure interact to determine the economics?
 
 ## Approach
 
-- Deterministic LP scheduling optimisation minimising net energy cost (import − export) plus a throughput-based battery degradation penalty
-- Real Octopus Agile half-hourly price data via the Octopus Energy API
-- Realistic GB household demand and PV generation profiles
-- System sized to Octopus Zero Bills specifications (~4 kWp PV, ~10 kWh battery)
-- Sensitivity analysis across degradation cost assumptions and dispatch strategies
+- Deterministic MILP scheduling optimisation minimising net energy cost (import − export) plus a throughput-based battery degradation penalty
+- Real Agile half-hourly import and export price data via the Octopus Energy API
+- Realistic GB household demand profiles and PVGIS-derived PV generation data
+- Systematic parameter study across UK locations, battery capacities, and tariff types
+- Sensitivity analysis across degradation cost assumptions
 
 ## Repository Structure
 
@@ -39,5 +39,5 @@ See `requirements.txt`. Key packages:
 
 - `cvxpy` — optimisation modelling
 - `pandas` — time-series data handling
-- `requests` — Octopus API data fetching
+- `requests` — tariff data fetching (Octopus Agile API)
 - `matplotlib` / `seaborn` — visualisation
