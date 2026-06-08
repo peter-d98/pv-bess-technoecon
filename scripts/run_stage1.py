@@ -7,6 +7,7 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -25,11 +26,29 @@ RESULTS_DIR = REPO_ROOT / "results"
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Stage 1 PV-BESS dispatch optimisation.")
+    parser.add_argument("--deg-cost", type=float, default=0.05,
+                        metavar="GBP_PER_KWH",
+                        help="Throughput degradation cost (GBP/kWh cycled). Default: 0.05")
+    parser.add_argument("--battery-cap", type=float, default=10.0,
+                        metavar="KWH",
+                        help="Battery capacity (kWh). Default: 10.0")
+    parser.add_argument("--max-power", type=float, default=3.0,
+                        metavar="KW",
+                        help="Max charge/discharge power (kW). Default: 3.0")
+    parser.add_argument("--no-terminal-soc", action="store_true",
+                        help="Disable the terminal SOC=initial constraint.")
+    args = parser.parse_args()
+
     data = make_stage1_dataset()
     dt_hours = data.attrs["dt_hours"]
 
-    # Degradation penalty enabled to discourage needless cycling.
-    battery = BatteryParams(degradation_cost_per_kwh=0.05)
+    battery = BatteryParams(
+        capacity_kwh=args.battery_cap,
+        max_charge_kw=args.max_power,
+        max_discharge_kw=args.max_power,
+        degradation_cost_per_kwh=args.deg_cost,
+    )
 
     result = solve_dispatch(
         pv_kw=data["pv_kw"].to_numpy(),
@@ -38,6 +57,7 @@ def main() -> None:
         export_price=data["export_price"].to_numpy(),
         battery=battery,
         dt_hours=dt_hours,
+        terminal_soc_equals_initial=not args.no_terminal_soc,
     )
 
     print(f"Solve status:        {result.status}")
