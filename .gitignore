@@ -36,3 +36,6 @@ results/
 # Data you may not want tracked
 data/raw/
 data/processed/
+
+# Excel temporary files
+~$*.xls*
