@@ -35,7 +35,7 @@ DATA_DIR = REPO_ROOT / "data"
 RESULTS_DIR = REPO_ROOT / "results"
 
 DEFAULT_PV = DATA_DIR / "Timeseries_55.829_-4.276_SA3_4kWp_crystSi_14_35deg_0deg_2023_2023.csv"
-DEFAULT_DEMAND = DATA_DIR / "demand_halfhourly_2025.csv"
+DEFAULT_DEMAND = DATA_DIR / "demand_halfhourly_2023.csv"
 DEFAULT_AGILE = DATA_DIR / "agile-half-hour-actual-rates-01-01-2023_31-12-2023.csv"
 
 DT_HOURS = 0.5
@@ -226,20 +226,34 @@ def _save_outputs(schedule: pd.DataFrame, data: pd.DataFrame, args) -> None:
         day_data = schedule.iloc[:HALFHOURS_PER_DAY]
         plot_day = day_data.index[0].normalize()
 
-    fig, ax1 = plt.subplots(figsize=(11, 6))
-    ax1.plot(day_data.index, day_data["demand_kw"], label="Demand", color="black", lw=1.5)
-    ax1.plot(day_data.index, day_data["pv_kw"], label="PV", color="orange", lw=1.5)
-    ax1.plot(day_data.index, day_data["p_import_kw"], label="Grid import", color="red", ls="--")
-    ax1.plot(day_data.index, day_data["p_export_kw"], label="Grid export", color="green", ls="--")
-    ax1.plot(day_data.index, day_data["p_charge_kw"], label="Charge", color="blue")
-    ax1.plot(day_data.index, day_data["p_discharge_kw"], label="Discharge", color="purple")
-    ax1.set_ylabel("Power (kW)")
-    ax1.set_xlabel("Time")
-    ax1.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter("%H:%M"))
-    ax1.grid(True, alpha=0.3)
+    fig, (ax1, ax3) = plt.subplots(
+        2, 1, figsize=(11, 8),
+        gridspec_kw={"height_ratios": [3, 1.5]},
+        sharex=True,
+    )
 
+    # ── Top panel: power flows ────────────────────────────────────────────────
+    ax1.plot(day_data.index, day_data["demand_kw"],
+             label="Demand", color="black", lw=1.5)
+    ax1.plot(day_data.index, day_data["pv_kw"],
+             label="PV", color="orange", lw=1.5)
+    ax1.plot(day_data.index, day_data["p_import_kw"],
+             label="Grid import", color="red", ls="--")
+    ax1.plot(day_data.index, day_data["p_export_kw"],
+             label="Grid export", color="green", ls="--")
+    ax1.plot(day_data.index, day_data["p_charge_kw"],
+             label="Charge", color="blue")
+    ax1.plot(day_data.index, day_data["p_discharge_kw"],
+             label="Discharge", color="purple")
+    ax1.set_ylabel("Power (kW)")
+    ax1.grid(True, alpha=0.3)
+    ax1.set_title(
+        f"Stage 2 dispatch — {plot_day.strftime('%A %-d %B %Y')} "
+        f"(deg cost {args.deg_cost * 100:.0f}p/kWh)"
+    )
+
+    # SOC on right axis of top panel
     ax2 = ax1.twinx()
-    # Append end-of-day SOC so the line extends to midnight.
     soc_index = list(day_data.index) + [day_data.index[-1] + pd.Timedelta(minutes=30)]
     soc_values = list(day_data["soc"]) + [float(day_data["soc_end"].iloc[-1])]
     ax2.plot(soc_index, soc_values, label="SOC", color="grey", lw=2, alpha=0.6)
@@ -248,11 +262,44 @@ def _save_outputs(schedule: pd.DataFrame, data: pd.DataFrame, args) -> None:
 
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left", ncol=2, fontsize=9)
-    ax1.set_title(
-        f"Stage 2 dispatch — {plot_day.strftime('%A %-d %B %Y')} "
-        f"(deg cost {args.deg_cost * 100:.0f}p/kWh)"
+    ax1.legend(lines1 + lines2, labels1 + labels2,
+               loc="upper left", ncol=3, fontsize=9)
+
+    # ── Bottom panel: Agile prices ────────────────────────────────────────────
+    import_p = day_data["import_price"] * 100   # £/kWh → p/kWh
+    export_p = day_data["export_price"] * 100
+    deg_p = args.deg_cost * 100                  # degradation cost in p/kWh
+
+    # Shade any negative-price (export-to-grid) periods
+    ax3.fill_between(
+        day_data.index, import_p, 0,
+        where=(import_p < 0).values,
+        color="red", alpha=0.15, label="_nolegend_",
     )
+    ax3.axhline(0, color="black", lw=0.7)
+
+    ax3.step(day_data.index, import_p, where="post",
+             label="Import price", color="red", lw=1.5)
+    ax3.step(day_data.index, export_p, where="post",
+             label="Export price", color="green", lw=1.5)
+
+    # Degradation cost reference line.
+    # A full charge→discharge cycle costs 2×deg_cost p/kWh of throughput.
+    # The import price must exceed (export price + 2×deg_cost) for grid
+    # charge→export arbitrage to be worthwhile, or import must fall below
+    # (avoided peak price − 2×deg_cost) for load-shift cycling to be worthwhile.
+    ax3.axhline(
+        deg_p,
+        color="blue", lw=1.0, ls=":",
+        label=f"Degradation cost ({deg_p:.0f}p/kWh per pass)",
+    )
+
+    ax3.set_ylabel("Price (p/kWh)")
+    ax3.set_xlabel("Time")
+    ax3.xaxis.set_major_formatter(plt.matplotlib.dates.DateFormatter("%H:%M"))
+    ax3.grid(True, alpha=0.3)
+    ax3.legend(loc="upper right", fontsize=8, ncol=3)
+
     fig.tight_layout()
 
     png_path = RESULTS_DIR / f"stage2_dispatch_day_{plot_day.strftime('%Y%m%d')}.png"

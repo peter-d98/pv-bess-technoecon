@@ -26,7 +26,7 @@ from src.data_loader import (
 
 DATA_DIR = REPO_ROOT / "data"
 PV_FILE = DATA_DIR / "Timeseries_55.829_-4.276_SA3_4kWp_crystSi_14_35deg_0deg_2023_2023.csv"
-DEMAND_FILE = DATA_DIR / "demand_halfhourly_2025.csv"
+DEMAND_FILE = DATA_DIR / "demand_halfhourly_2023.csv"
 AGILE_FILE = DATA_DIR / "agile-half-hour-actual-rates-01-01-2023_31-12-2023.csv"
 
 YEAR = 2023
