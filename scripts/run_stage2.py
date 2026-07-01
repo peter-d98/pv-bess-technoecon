@@ -29,6 +29,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.battery import BatteryParams
 from src.data_loader import HALFHOURS_PER_DAY, load_all
+from src.economics import EconomicParams, annual_saving_from_costs, compute_npv
 from src.model import solve_dispatch
 
 DATA_DIR = REPO_ROOT / "data"
@@ -146,6 +147,14 @@ def main() -> None:
                         help="Max charge/discharge power (kW). Default: 3.0")
     parser.add_argument("--battery-capex", type=float, default=4000.0, metavar="GBP",
                         help="Installed battery capital cost for payback (GBP). Default: 4000")
+    parser.add_argument("--discount-rate", type=float, default=0.05, metavar="RATE",
+                        help="Real discount rate for NPV. Default: 0.05")
+    parser.add_argument("--horizon-years", type=int, default=20, metavar="YEARS",
+                        help="NPV analysis horizon (years). Default: 20")
+    parser.add_argument("--price-escalation", type=float, default=0.02, metavar="RATE",
+                        help="Real electricity price escalation per year. Default: 0.02")
+    parser.add_argument("--battery-life-years", type=float, default=12.0, metavar="YEARS",
+                        help="Battery calendar/cycle life for replacement timing. Default: 12")
     parser.add_argument("--year", type=int, default=2023,
                         help="Reference calendar year for the canonical index. Default: 2023")
     parser.add_argument("--terminal-soc-daily", action="store_true",
@@ -202,6 +211,33 @@ def main() -> None:
         print(f"  Simple payback:       {payback_years:.1f} years")
     else:
         print(f"  Simple payback:       never (battery not economic at this deg cost)")
+    print("=" * 56)
+
+    # Lifetime NPV assessment (the headline viability metric).
+    econ = EconomicParams(
+        battery_capex=args.battery_capex,
+        discount_rate=args.discount_rate,
+        horizon_years=args.horizon_years,
+        price_escalation=args.price_escalation,
+        battery_life_years=args.battery_life_years,
+    )
+    npv_result = compute_npv(annual_savings, econ)
+    print("LIFETIME NPV ASSESSMENT")
+    print("-" * 56)
+    print(f"  Discount rate (real): {args.discount_rate * 100:.1f}%")
+    print(f"  Horizon:              {args.horizon_years} years")
+    print(f"  Price escalation:     {args.price_escalation * 100:.1f}%/yr (real)")
+    print(f"  Battery life:         {args.battery_life_years:.1f} years")
+    print(f"  PV of benefits (GBP)  {npv_result.pv_benefits:11.2f}")
+    print(f"  PV of costs (GBP)     {npv_result.pv_costs:11.2f}")
+    print(f"  Net present value     GBP {npv_result.npv:,.2f}")
+    print(f"  Benefit-cost ratio    {npv_result.bcr:.3f}")
+    if np.isfinite(npv_result.discounted_payback_years):
+        print(f"  Discounted payback:   {npv_result.discounted_payback_years:.0f} years")
+    else:
+        print(f"  Discounted payback:   never (within {args.horizon_years} yr horizon)")
+    verdict = "VIABLE" if npv_result.npv > 0 else "NOT VIABLE"
+    print(f"  Verdict (NPV > 0):    {verdict}")
     print("=" * 56)
 
     _save_outputs(schedule, data, args)
