@@ -55,7 +55,7 @@ The battery is represented by a generic SOC model. The SOC evolves according to:
 
 $$SOC_{t+1} = SOC_t + \frac{\Delta t}{E_{BESS}} \left( \eta_c \cdot P_t^{charge} - \frac{P_t^{discharge}}{\eta_d} \right)$$
 
-where $E_{BESS}$ is the battery capacity in kWh and $\Delta t = 1$ hour. This is a linear difference equation, directly suitable for embedding in a linear programme. It captures:
+where $E_{BESS}$ is the battery capacity in kWh and $\Delta t = 1/2$ hour. This is a linear difference equation, directly suitable for embedding in a linear programme. It captures:
 
 - **Charging losses**: only $\eta_c < 1$ of the input power is actually stored
 - **Discharging losses**: the battery must expend $1/\eta_d > 1$ kWh of stored energy to deliver each kWh at the terminals
