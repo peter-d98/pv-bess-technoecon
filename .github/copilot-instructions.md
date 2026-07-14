@@ -25,7 +25,7 @@ Spec 01 (the NPV economic model) in `.github/specs/` is the worked reference exa
 
 - **Optimisation:** Deterministic MILP (not simulation, not Simulink) minimising net energy cost (grid import cost − export revenue) plus a throughput-based battery degradation penalty
 - **Battery model:** Generic SOC model — linear difference equation, no electrochemical dynamics
-- **Degradation model:** Throughput penalty (£/kWh cycled), linear and embeddable in the MILP objective
+- **Degradation model:** Throughput penalty (£/kWh cycled) inside the MILP, with the penalty value *derived* from `capex / (N_EoL · 2 · Q_nom)`; capacity fade (additive linear cycle + calendar) applied *exogenously* across the rolling horizon, feeding a declining per-year saving stream into the NPV model
 - **Data:** Real Agile half-hourly tariff data from a downloaded Octopus Agile CSV (live API retrieval planned); PVGIS-derived PV generation; realistic GB household demand profiles (CREST)
 - **Validation & benchmarking:** PV yield cross-checked against Sheffield Solar PV_Live and DESNZ regional statistics; demand against Ofgem TDCVs; the MILP optimum benchmarked against two rules-based heuristic controllers (PV self-consumption; Agile price-threshold) as the real-world baseline
 - **Parameter study axes:** UK location (south England / Midlands / Scotland), battery capacity, tariff type (flat / ToU / Agile), degradation cost assumption
@@ -104,7 +104,7 @@ results/          # Outputs, figures, cached artefacts (e.g. stage2_schedule_202
 These decisions have been made deliberately and should not be revisited without good reason. If a new situation genuinely warrants reconsidering one, flag it explicitly rather than silently working around it.
 
 - **Python not MATLAB:** MILP in Python (CVXPY) is more reproducible, better supported, and more employable than an equivalent MATLAB implementation.
-- **Throughput degradation, not rainflow-in-loop:** Rainflow counting is non-convex and cannot be embedded directly in the LP. The throughput penalty is the chosen approach; rainflow can be applied post-hoc to the solved SOC trajectory as a validation step.
+- **Throughput degradation, not rainflow/DoD:** Rainflow counting is non-convex and cannot be embedded in the LP. For LFP, fade is throughput-driven and largely DoD-independent (Wang et al. 2011), so rainflow is **not used** — the throughput penalty is the chosen approach. The LFP-relevant operational lever is **SOC exposure** (calendar fade is SOC-driven), analysed post-hoc on the solved trajectory; SOC-dependent calendar fade is a sensitivity, not embedded in the MILP.
 - **Degradation cost term must stay:** It is central to the research question. Removing it produces an incomplete and misleading result.
 - **Import/export binary variable must stay:** Without it the model is unbounded when export price > import price.
 - **No stochastic or robust optimisation:** Out of scope given the project timeline and background. Forecast uncertainty is handled through sensitivity analysis instead.

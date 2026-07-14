@@ -21,9 +21,12 @@ established in the literature).
 - **Lifetime NPV as the primary viability metric** (simple payback is retained
   only as a secondary sanity check)
 - **Two-timescale degradation model:** a linear throughput penalty *inside* the
-  dispatch MILP (marginal degradation cost), with capacity fade applied
-  *exogenously* across the rolling horizon and lifetime. Capacity fade is not
-  embedded in the optimisation itself (non-convex, and it couples the horizon)
+  dispatch MILP (its £/kWh value *derived* from capex over lifetime throughput),
+  with additive linear cycle + calendar capacity fade applied *exogenously* across
+  the rolling horizon and lifetime. Capacity fade is not embedded in the
+  optimisation itself (non-convex, and it couples the horizon). DoD/rainflow is not
+  modelled — LFP fade is throughput-driven and largely DoD-independent (Wang et al.
+  2011); the LFP-relevant lever, **SOC exposure**, is analysed post-hoc
 - Real Agile half-hourly import/export prices, PVGIS-derived PV generation, and a
   CREST synthetic GB household demand profile
 - Systematic parameter study across UK locations, battery capacities, tariff

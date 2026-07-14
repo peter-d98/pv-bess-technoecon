@@ -29,6 +29,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.battery import BatteryParams
 from src.data_loader import HALFHOURS_PER_DAY, load_all
+from src.degradation import (
+    DegradationParams,
+    derive_throughput_penalty,
+    simulate_capacity_fade,
+    soc_exposure,
+)
 from src.economics import EconomicParams, annual_saving_from_costs, compute_npv
 from src.model import solve_dispatch
 
@@ -155,6 +161,18 @@ def main() -> None:
                         help="Real electricity price escalation per year. Default: 0.02")
     parser.add_argument("--battery-life-years", type=float, default=12.0, metavar="YEARS",
                         help="Battery calendar/cycle life for replacement timing. Default: 12")
+    parser.add_argument("--fade-npv", action="store_true",
+                        help="Run the exogenous capacity-fade simulation and a fade-adjusted "
+                             "NPV (re-dispatches the full year per horizon year; slow).")
+    parser.add_argument("--calendar-life-years", type=float, default=13.5, metavar="YEARS",
+                        help="Calendar years to SOH_eol (calendar ageing alone). Default: 13.5")
+    parser.add_argument("--cycle-life-efc", type=float, default=6000.0, metavar="EFC",
+                        help="Equivalent full cycles to SOH_eol (cycle ageing alone). Default: 6000")
+    parser.add_argument("--soh-eol", type=float, default=0.80, metavar="FRAC",
+                        help="State of health at replacement. Default: 0.80")
+    parser.add_argument("--calendar-form", type=str, default="linear",
+                        choices=("linear", "sqrt"),
+                        help="Calendar fade shape: 'linear' (baseline) or 'sqrt'. Default: linear")
     parser.add_argument("--year", type=int, default=2023,
                         help="Reference calendar year for the canonical index. Default: 2023")
     parser.add_argument("--terminal-soc-daily", action="store_true",
@@ -240,7 +258,89 @@ def main() -> None:
     print(f"  Verdict (NPV > 0):    {verdict}")
     print("=" * 56)
 
+    _report_degradation(data, battery, cf, schedule, econ, args)
+
     _save_outputs(schedule, data, args)
+
+
+def _report_degradation(
+    data: pd.DataFrame,
+    battery: BatteryParams,
+    cf: dict[str, float],
+    schedule: pd.DataFrame,
+    econ: EconomicParams,
+    args,
+) -> None:
+    """Report the derived throughput penalty, SOC exposure, and (optionally) a
+    fade-adjusted NPV using the exogenous capacity-fade model (Spec 02)."""
+    deg = DegradationParams(
+        soh_eol=args.soh_eol,
+        cycle_life_efc=args.cycle_life_efc,
+        calendar_life_years=args.calendar_life_years,
+        calendar_form=args.calendar_form,
+    )
+
+    # Cheap, always-on diagnostics from the base-year schedule.
+    c_thr = derive_throughput_penalty(args.battery_capex, args.battery_cap, deg)
+    exposure = soc_exposure(schedule["soc"].to_numpy(), DT_HOURS, thresholds=(0.8,))
+
+    print("DEGRADATION & SOC EXPOSURE (Spec 02)")
+    print("-" * 56)
+    print(f"  Derived throughput penalty: {c_thr * 100:.2f} p/kWh "
+          f"(capex / {args.cycle_life_efc:.0f} EFC over {args.battery_cap:.0f} kWh)")
+    print(f"    (dispatch used --deg-cost {args.deg_cost * 100:.1f} p/kWh)")
+    print(f"  Mean SOC:                   {exposure['mean_soc']:.3f}")
+    print(f"  Time-weighted mean SOC:     {exposure['time_weighted_mean_soc']:.3f}")
+    print(f"  Fraction of time SOC>0.80:  {exposure['frac_time_above'][0.8]:.3f}")
+    print("=" * 56)
+
+    if not args.fade_npv:
+        print("  (Run with --fade-npv for the fade-adjusted NPV; it re-dispatches")
+        print("   the full year for each horizon year and is slow.)")
+        print("=" * 56)
+        return
+
+    print("Running exogenous capacity-fade simulation "
+          f"({args.horizon_years} annual re-dispatches; this is slow)...")
+
+    def dispatch_year(capacity_kwh: float, soc_max: float):
+        aged = replace(battery, capacity_kwh=capacity_kwh, soc_max=soc_max)
+        sched = solve_year(data, aged, terminal_soc_daily=args.terminal_soc_daily)
+        costs = battery_annual_costs(sched, aged)
+        saving = annual_saving_from_costs(
+            cf["net_cost"], costs["net_cost"], costs["degradation_cost"]
+        )
+        return saving, costs["throughput_kwh"], sched["soc"].to_numpy()
+
+    fade = simulate_capacity_fade(
+        dispatch_year=dispatch_year,
+        capacity_kwh_nominal=args.battery_cap,
+        soc_max=battery.soc_max,
+        horizon_years=args.horizon_years,
+        params=deg,
+    )
+
+    econ_fade = replace(econ, battery_life_years=fade.effective_life_years)
+    npv_fade = compute_npv(fade.saving_stream, econ_fade)
+
+    print("\n" + "=" * 56)
+    print("FADE-ADJUSTED LIFETIME NPV")
+    print("=" * 56)
+    print(f"  Effective battery life:  {fade.effective_life_years:.2f} years "
+          f"(from year-1 EFC {fade.efc_per_year[0]:.0f})")
+    print(f"  Replacement year(s):     "
+          f"{fade.replacement_years if fade.replacement_years else 'none in horizon'}")
+    print(f"  Year-1 saving (GBP):     {fade.saving_stream[0]:,.2f}")
+    print(f"  Year-{args.horizon_years} saving (GBP):    {fade.saving_stream[-1]:,.2f}")
+    print(f"  SOH at end of horizon:   {fade.soh_trajectory[-1]:.3f}")
+    print("-" * 56)
+    print(f"  PV of benefits (GBP)     {npv_fade.pv_benefits:11.2f}")
+    print(f"  PV of costs (GBP)        {npv_fade.pv_costs:11.2f}")
+    print(f"  Net present value        GBP {npv_fade.npv:,.2f}")
+    print(f"  Benefit-cost ratio       {npv_fade.bcr:.3f}")
+    verdict = "VIABLE" if npv_fade.npv > 0 else "NOT VIABLE"
+    print(f"  Verdict (NPV > 0):       {verdict}")
+    print("=" * 56)
 
 
 def _save_outputs(schedule: pd.DataFrame, data: pd.DataFrame, args) -> None:

@@ -71,14 +71,17 @@ def main() -> None:
     print(f"Degradation cost:    GBP {result.degradation_cost:6.3f}")
     print(f"Net energy cost:     GBP {result.net_cost:6.3f}")
 
-    _plot(result, dt_hours)
+    _plot(result, dt_hours, args.deg_cost)
 
 
-def _plot(result, dt_hours: float) -> None:
+def _plot(result, dt_hours: float, deg_cost_per_kwh: float) -> None:
     schedule = result.schedule
     hours = schedule.index
 
-    fig, ax1 = plt.subplots(figsize=(11, 6))
+    fig, (ax1, ax3) = plt.subplots(
+        2, 1, figsize=(11, 8), sharex=True,
+        gridspec_kw={"height_ratios": [3, 1]},
+    )
 
     ax1.plot(hours, schedule["demand_kw"], label="Demand", color="black", lw=2)
     ax1.plot(hours, schedule["pv_kw"], label="PV", color="orange", lw=2)
@@ -88,9 +91,7 @@ def _plot(result, dt_hours: float) -> None:
     ax1.plot(
         hours, schedule["p_discharge_kw"], label="Battery discharge", color="purple"
     )
-    ax1.set_xlabel("Hour of day")
     ax1.set_ylabel("Power (kW)")
-    ax1.set_xticks(range(0, len(hours), 2))
     ax1.grid(True, alpha=0.3)
 
     ax2 = ax1.twinx()
@@ -105,6 +106,24 @@ def _plot(result, dt_hours: float) -> None:
     ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left", ncol=2)
 
     ax1.set_title("Stage 1 synthetic PV-BESS optimal dispatch")
+
+    # Bottom panel: tariff prices (converted GBP/kWh -> p/kWh) with the
+    # degradation cost drawn as a per-pass reference line.
+    ax3.step(hours, schedule["import_price"] * 100, where="post",
+             label="Import price", color="red")
+    ax3.step(hours, schedule["export_price"] * 100, where="post",
+             label="Export price", color="green")
+    ax3.axhline(deg_cost_per_kwh * 100, ls=":", color="blue",
+                label=f"Degradation cost ({deg_cost_per_kwh * 100:.0f}p/kWh per pass)")
+    ax3.set_xlabel("Hour of day")
+    ax3.set_ylabel("Price (p/kWh)")
+    ax3.set_xticks(range(0, len(hours), 2))
+    ax3.grid(True, alpha=0.3)
+    # Add headroom above the highest trace so the legend never overlaps it.
+    price_max = float((schedule["import_price"] * 100).max())
+    ax3.set_ylim(0, price_max * 1.6)
+    ax3.legend(loc="upper left", ncol=3, fontsize=8)
+
     fig.tight_layout()
 
     RESULTS_DIR.mkdir(exist_ok=True)
