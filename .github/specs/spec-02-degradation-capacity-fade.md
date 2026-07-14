@@ -68,6 +68,10 @@ class DegradationParams:
     soc_ref: float = 0.50            # reference SOC for the stress multiplier
     soc_stress_beta: float = 0.0     # 0 => SOC-independent; >0 => higher SOC ages faster
                                      # NOTE: coefficient is a citation dependency (Naumann et al.)
+
+    # Replacement policy (see §4.5)
+    replace_at_eol: bool = True      # sensitivity: replace the year SOH reaches soh_eol
+    soh_floor: float = 0.0           # run-to-fade base case: replace only if SOH reaches this
 ```
 
 Two conventions are fixed and shared with the existing code:
@@ -142,10 +146,27 @@ default `beta = 0` recovers the SOC-independent baseline exactly.
 SOH(t) = 1 - phi_cyc(EFC_cum) - phi_cal(t_since_install)
 ```
 
-When `SOH ≤ soh_eol` the battery is replaced: SOH resets to 1, the EFC counter and the
-calendar clock reset, and a replacement capex lands in the NPV that year. Because the
-budget is shared additively, combined cycling + calendar reaches EoL **sooner** than
-either figure alone — this is the standard interpretation and is stated explicitly.
+`soh_eol` is the **fade-curve anchor**: `cycle_life_efc` and `calendar_life_years`
+are defined as the EFC / years at which each term alone consumes the full
+`(1 - soh_eol)` budget. It is **decoupled from the replacement decision**, which is
+governed by policy:
+
+- **Run-to-fade (base case, `replace_at_eol=False`).** The battery is *not* replaced
+  at `soh_eol`; it keeps operating at faded capacity, delivering a **declining**
+  saving stream. A replacement is forced only if start-of-year SOH falls to the hard
+  `soh_floor` (e.g. 0.55). This reflects realistic homeowner behaviour (a working,
+  gently-faded battery is not scrapped on a fixed date) and is the only regime in
+  which degradation-aware dispatch can affect replacement timing (less throughput →
+  slower fade → later/absent floor crossing).
+- **Forced replacement (sensitivity, `replace_at_eol=True`).** The battery is replaced
+  the year SOH reaches `soh_eol` — a fixed end-of-life trigger, retained as a
+  pessimistic bound.
+
+On replacement, SOH resets to 1, the EFC counter and calendar clock reset, and a
+replacement capex lands in the NPV that year. Because the budget is shared additively,
+combined cycling + calendar reaches a given SOH **sooner** than either figure alone.
+Salvage value of a deeply-faded pack at the horizon end is taken as zero (the residual
+credit is switched off for the fade valuation); this is mildly conservative.
 
 Usable capacity handed to the next annual dispatch:
 ```

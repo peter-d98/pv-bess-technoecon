@@ -35,7 +35,7 @@ from src.degradation import (
     simulate_capacity_fade,
     soc_exposure,
 )
-from src.economics import EconomicParams, annual_saving_from_costs, compute_npv
+from src.economics import EconomicParams, compute_npv
 from src.model import solve_dispatch
 
 DATA_DIR = REPO_ROOT / "data"
@@ -125,6 +125,21 @@ def counterfactual_cost(data: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def grid_only_cost(data: pd.DataFrame) -> dict[str, float]:
+    """Annual energy cost for a household with no PV and no battery.
+
+    Every unit of demand is imported at the prevailing half-hourly price; there
+    is no PV to self-consume or export. This is the counterfactual for the
+    whole-system framing (is installing PV + battery worthwhile at all?).
+    """
+    import_cost = float((data["demand_kw"] * data["import_price"]).sum() * DT_HOURS)
+    return {
+        "import_cost": import_cost,
+        "export_revenue": 0.0,
+        "net_cost": import_cost,
+    }
+
+
 def battery_annual_costs(schedule: pd.DataFrame, battery: BatteryParams) -> dict[str, float]:
     """Aggregate the solved annual schedule into a cost breakdown."""
     import_cost = float((schedule["p_import_kw"] * schedule["import_price"]).sum() * DT_HOURS)
@@ -145,34 +160,67 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Stage 2 annual PV-BESS dispatch optimisation on real data."
     )
-    parser.add_argument("--deg-cost", type=float, default=0.05, metavar="GBP_PER_KWH",
-                        help="Throughput degradation cost (GBP/kWh cycled). Default: 0.05")
+    parser.add_argument("--deg-cost", type=float, default=None, metavar="GBP_PER_KWH",
+                        help="Throughput degradation cost (GBP/kWh cycled). Default: derived "
+                             "from capex / (cycle_life_efc * 2 * capacity) ≈ 0.05 (5 p/kWh at "
+                             "baseline). Pass a value to override.")
     parser.add_argument("--battery-cap", type=float, default=10.0, metavar="KWH",
-                        help="Battery capacity (kWh). Default: 10.0")
+                        help="Battery nominal capacity (kWh). Default: 10.0")
     parser.add_argument("--max-power", type=float, default=3.0, metavar="KW",
                         help="Max charge/discharge power (kW). Default: 3.0")
-    parser.add_argument("--battery-capex", type=float, default=4000.0, metavar="GBP",
-                        help="Installed battery capital cost for payback (GBP). Default: 4000")
+    parser.add_argument("--pv-kwp", type=float, default=4.0, metavar="KWP",
+                        help="PV array peak power (kWp). The hybrid inverter is sized to match "
+                             "this. Default: 4.0")
+    parser.add_argument("--pv-cost-per-kwp", type=float, default=1940.0, metavar="GBP_PER_KWP",
+                        help="Installed PV cost per kWp. Default: 1940")
+    parser.add_argument("--battery-cost-per-kwh", type=float, default=600.0,
+                        metavar="GBP_PER_KWH",
+                        help="Installed battery cost per kWh (also the replacement cost and the "
+                             "basis for the derived throughput penalty). Default: 600")
+    parser.add_argument("--inverter-cost-per-kw", type=float, default=400.0,
+                        metavar="GBP_PER_KW",
+                        help="Installed hybrid-inverter cost per kW (sized to the PV array). "
+                             "Default: 400")
+    parser.add_argument("--pv-om-frac", type=float, default=0.01, metavar="FRAC",
+                        help="Annual PV O&M as a fraction of PV capital cost (whole-system "
+                             "framing only). Default: 0.01")
+    parser.add_argument("--framing", choices=("whole-system", "battery-marginal"),
+                        default="whole-system",
+                        help="'whole-system': counterfactual is grid-only (no PV, no battery), "
+                             "initial capex is the whole system. 'battery-marginal': "
+                             "counterfactual is PV-only, initial capex is the battery. "
+                             "Default: whole-system")
     parser.add_argument("--discount-rate", type=float, default=0.05, metavar="RATE",
                         help="Real discount rate for NPV. Default: 0.05")
     parser.add_argument("--horizon-years", type=int, default=20, metavar="YEARS",
                         help="NPV analysis horizon (years). Default: 20")
     parser.add_argument("--price-escalation", type=float, default=0.02, metavar="RATE",
                         help="Real electricity price escalation per year. Default: 0.02")
-    parser.add_argument("--battery-life-years", type=float, default=12.0, metavar="YEARS",
-                        help="Battery calendar/cycle life for replacement timing. Default: 12")
+    parser.add_argument("--battery-life-years", type=float, default=10.0, metavar="YEARS",
+                        help="Battery life for the flat-NPV replacement timing. Default: 10")
     parser.add_argument("--fade-npv", action="store_true",
                         help="Run the exogenous capacity-fade simulation and a fade-adjusted "
                              "NPV (re-dispatches the full year per horizon year; slow).")
-    parser.add_argument("--calendar-life-years", type=float, default=13.5, metavar="YEARS",
-                        help="Calendar years to SOH_eol (calendar ageing alone). Default: 13.5")
+    parser.add_argument("--calendar-life-years", type=float, default=10.0, metavar="YEARS",
+                        help="Calendar years to SOH_eol (calendar ageing alone). "
+                             "Default: 10 (battery warranty)")
     parser.add_argument("--cycle-life-efc", type=float, default=6000.0, metavar="EFC",
-                        help="Equivalent full cycles to SOH_eol (cycle ageing alone). Default: 6000")
+                        help="Equivalent full cycles to SOH_eol (cycle ageing alone). "
+                             "Default: 6000 (LFP literature value, defined to 80% SOH)")
     parser.add_argument("--soh-eol", type=float, default=0.80, metavar="FRAC",
-                        help="State of health at replacement. Default: 0.80")
+                        help="State of health at end-of-life / replacement. Default: 0.80 "
+                             "(paired with the 6000-EFC literature cycle-life endpoint)")
     parser.add_argument("--calendar-form", type=str, default="linear",
                         choices=("linear", "sqrt"),
                         help="Calendar fade shape: 'linear' (baseline) or 'sqrt'. Default: linear")
+    parser.add_argument("--replace-at-eol", action="store_true",
+                        help="Fade-NPV replacement policy: replace at SOH_eol (the forced-"
+                             "replacement sensitivity). Default (unset): run-to-fade base case "
+                             "— keep operating the ageing battery, replacing only if SOH falls "
+                             "to --soh-floor.")
+    parser.add_argument("--soh-floor", type=float, default=0.55, metavar="FRAC",
+                        help="Run-to-fade hard SOH floor: force a replacement if the battery "
+                             "fades to this SOH within the horizon. Default: 0.55")
     parser.add_argument("--year", type=int, default=2023,
                         help="Reference calendar year for the canonical index. Default: 2023")
     parser.add_argument("--terminal-soc-daily", action="store_true",
@@ -183,6 +231,35 @@ def main() -> None:
     parser.add_argument("--demand-file", type=Path, default=DEFAULT_DEMAND)
     parser.add_argument("--agile-file", type=Path, default=DEFAULT_AGILE)
     args = parser.parse_args()
+
+    # Component capex from per-unit costs. The hybrid inverter is sized to match
+    # the PV array. The battery cost is both the replacement cost and the basis
+    # for the derived throughput penalty; the whole-system outlay adds PV and
+    # inverter on top.
+    pv_capex = args.pv_kwp * args.pv_cost_per_kwp
+    inverter_capex = args.pv_kwp * args.inverter_cost_per_kw
+    args.battery_capex = args.battery_cap * args.battery_cost_per_kwh
+    args.system_capex = pv_capex + inverter_capex + args.battery_capex
+    # PV O&M is an incremental cost only in the whole-system framing; a
+    # battery-marginal household already owns and maintains the PV, so the O&M
+    # cancels against the counterfactual.
+    om_cost_per_year = (
+        args.pv_om_frac * pv_capex if args.framing == "whole-system" else 0.0
+    )
+
+    # Default degradation cost is the physically-grounded derived penalty
+    # (capex spread over lifetime throughput), not an assumed round number.
+    deg_params = DegradationParams(
+        soh_eol=args.soh_eol,
+        cycle_life_efc=args.cycle_life_efc,
+        calendar_life_years=args.calendar_life_years,
+        calendar_form=args.calendar_form,
+    )
+    deg_cost_is_derived = args.deg_cost is None
+    if deg_cost_is_derived:
+        args.deg_cost = derive_throughput_penalty(
+            args.battery_capex, args.battery_cap, deg_params
+        )
 
     print("Loading and aligning data...")
     data = load_all(args.pv_file, args.demand_file, args.agile_file, year=args.year)
@@ -201,43 +278,69 @@ def main() -> None:
     schedule = solve_year(data, battery, terminal_soc_daily=args.terminal_soc_daily)
 
     bat = battery_annual_costs(schedule, battery)
-    cf = counterfactual_cost(data)
 
-    # True annual saving must deduct degradation: it is a real cost to the
-    # battery owner (wear → earlier replacement) not just an optimiser penalty.
-    battery_total_cost = bat["net_cost"] + bat["degradation_cost"]
-    annual_savings = cf["net_cost"] - battery_total_cost
-    payback_years = args.battery_capex / annual_savings if annual_savings > 0 else float("inf")
+    # Framing selects the counterfactual and the initial capital outlay.
+    #   whole-system: vs a household with no PV and no battery (all demand
+    #                 imported); initial outlay is the whole PV+inverter+battery.
+    #   battery-marginal: vs a household that already owns PV but no battery;
+    #                 initial outlay is the battery only.
+    if args.framing == "whole-system":
+        cf = grid_only_cost(data)
+        initial_capex = args.system_capex
+        # The hybrid inverter is assumed to share the battery's 10-yr life, so
+        # the two are replaced together; PV persists for the horizon.
+        replacement_capex = args.battery_capex + inverter_capex
+    else:
+        cf = counterfactual_cost(data)
+        initial_capex = args.battery_capex
+        replacement_capex = args.battery_capex
+
+    # Q9: the degradation cost is NOT subtracted from the annual saving. Wear is
+    # priced once, via the explicitly-timed battery replacement in the NPV;
+    # deducting it here too would double-count. It is reported as a diagnostic.
+    annual_savings = cf["net_cost"] - bat["net_cost"]
+    payback_years = initial_capex / annual_savings if annual_savings > 0 else float("inf")
 
     print("\n" + "=" * 56)
     print("ANNUAL TECHNO-ECONOMIC VIABILITY ASSESSMENT")
     print("=" * 56)
-    print(f"Degradation cost assumption: {args.deg_cost * 100:.1f} p/kWh")
-    print(f"Battery: {args.battery_cap:.0f} kWh / {args.max_power:.0f} kW, capex GBP {args.battery_capex:,.0f}")
+    print(f"Degradation cost assumption: {args.deg_cost * 100:.2f} p/kWh "
+          f"({'derived' if deg_cost_is_derived else 'user override'})")
+    cf_label = "Grid-only" if args.framing == "whole-system" else "PV, no batt"
+    print(f"Framing: {args.framing} (initial capex GBP {initial_capex:,.0f}, "
+          f"replacement GBP {replacement_capex:,.0f})")
+    print(f"Battery: {args.battery_cap:.1f} kWh / {args.max_power:.0f} kW")
+    print(f"Capex: PV GBP {pv_capex:,.0f} + inverter GBP {inverter_capex:,.0f} + "
+          f"battery GBP {args.battery_capex:,.0f} = GBP {args.system_capex:,.0f}")
     print("-" * 56)
-    print("                        With battery   No battery")
+    print(f"                        PV+battery   {cf_label}")
     print(f"  Import cost (GBP)     {bat['import_cost']:11.2f}  {cf['import_cost']:11.2f}")
     print(f"  Export revenue (GBP)  {bat['export_revenue']:11.2f}  {cf['export_revenue']:11.2f}")
     print(f"  Net energy cost (GBP) {bat['net_cost']:11.2f}  {cf['net_cost']:11.2f}")
-    print(f"  Degradation (GBP)     {bat['degradation_cost']:11.2f}  {0.0:11.2f}")
-    print(f"  Total cost (GBP)      {battery_total_cost:11.2f}  {cf['net_cost']:11.2f}")
     print("-" * 56)
     print(f"  Battery throughput:   {bat['throughput_kwh']:,.0f} kWh/yr "
           f"({bat['throughput_kwh'] / (2 * args.battery_cap):.0f} equiv. full cycles)")
-    print(f"  Annual saving:        GBP {annual_savings:,.2f}  (net cost reduction incl. degradation)")
+    print(f"  Degradation cost:     GBP {bat['degradation_cost']:,.2f}/yr "
+          f"(diagnostic; not deducted from saving)")
+    print(f"  Annual saving:        GBP {annual_savings:,.2f}  (net energy cost reduction)")
     if np.isfinite(payback_years):
         print(f"  Simple payback:       {payback_years:.1f} years")
     else:
         print(f"  Simple payback:       never (battery not economic at this deg cost)")
     print("=" * 56)
 
-    # Lifetime NPV assessment (the headline viability metric).
+    # Lifetime NPV assessment (the headline viability metric). The initial outlay
+    # is the whole system (or battery, per framing); each replacement is the
+    # battery + inverter (both 10-yr life; PV persists), applied via
+    # replacement_cost_factor so economics.py is unchanged.
     econ = EconomicParams(
-        battery_capex=args.battery_capex,
+        battery_capex=initial_capex,
         discount_rate=args.discount_rate,
         horizon_years=args.horizon_years,
         price_escalation=args.price_escalation,
         battery_life_years=args.battery_life_years,
+        replacement_cost_factor=replacement_capex / initial_capex,
+        om_cost_per_year=om_cost_per_year,
     )
     npv_result = compute_npv(annual_savings, econ)
     print("LIFETIME NPV ASSESSMENT")
@@ -246,6 +349,7 @@ def main() -> None:
     print(f"  Horizon:              {args.horizon_years} years")
     print(f"  Price escalation:     {args.price_escalation * 100:.1f}%/yr (real)")
     print(f"  Battery life:         {args.battery_life_years:.1f} years")
+    print(f"  PV O&M (per year):    GBP {om_cost_per_year:,.2f}")
     print(f"  PV of benefits (GBP)  {npv_result.pv_benefits:11.2f}")
     print(f"  PV of costs (GBP)     {npv_result.pv_costs:11.2f}")
     print(f"  Net present value     GBP {npv_result.npv:,.2f}")
@@ -278,6 +382,8 @@ def _report_degradation(
         cycle_life_efc=args.cycle_life_efc,
         calendar_life_years=args.calendar_life_years,
         calendar_form=args.calendar_form,
+        replace_at_eol=args.replace_at_eol,
+        soh_floor=args.soh_floor,
     )
 
     # Cheap, always-on diagnostics from the base-year schedule.
@@ -287,8 +393,8 @@ def _report_degradation(
     print("DEGRADATION & SOC EXPOSURE (Spec 02)")
     print("-" * 56)
     print(f"  Derived throughput penalty: {c_thr * 100:.2f} p/kWh "
-          f"(capex / {args.cycle_life_efc:.0f} EFC over {args.battery_cap:.0f} kWh)")
-    print(f"    (dispatch used --deg-cost {args.deg_cost * 100:.1f} p/kWh)")
+          f"(capex / {args.cycle_life_efc:.0f} EFC over {args.battery_cap:.1f} kWh)")
+    print(f"    (dispatch used {args.deg_cost * 100:.2f} p/kWh)")
     print(f"  Mean SOC:                   {exposure['mean_soc']:.3f}")
     print(f"  Time-weighted mean SOC:     {exposure['time_weighted_mean_soc']:.3f}")
     print(f"  Fraction of time SOC>0.80:  {exposure['frac_time_above'][0.8]:.3f}")
@@ -307,9 +413,8 @@ def _report_degradation(
         aged = replace(battery, capacity_kwh=capacity_kwh, soc_max=soc_max)
         sched = solve_year(data, aged, terminal_soc_daily=args.terminal_soc_daily)
         costs = battery_annual_costs(sched, aged)
-        saving = annual_saving_from_costs(
-            cf["net_cost"], costs["net_cost"], costs["degradation_cost"]
-        )
+        # Q9: degradation not subtracted; wear is priced via replacement capex.
+        saving = cf["net_cost"] - costs["net_cost"]
         return saving, costs["throughput_kwh"], sched["soc"].to_numpy()
 
     fade = simulate_capacity_fade(
@@ -320,19 +425,64 @@ def _report_degradation(
         params=deg,
     )
 
-    econ_fade = replace(econ, battery_life_years=fade.effective_life_years)
+    # Q10 fix: value the NPV replacement on the life the simulation ACTUALLY
+    # realised (first simulated replacement), not the year-1-EFC extrapolation in
+    # fade.effective_life_years — otherwise the capex is booked ~2 years before
+    # the trajectory being valued actually replaces the battery.
+    if fade.replacement_years:
+        realised_life = fade.replacement_years[0] - 1
+    else:
+        realised_life = args.horizon_years + 1  # survives the horizon; no replacement
+    # Salvage of a deeply-faded pack is taken as zero (the residual-value credit
+    # is switched off for the fade valuation); this is mildly conservative.
+    econ_fade = replace(
+        econ, battery_life_years=realised_life, include_residual_value=False
+    )
     npv_fade = compute_npv(fade.saving_stream, econ_fade)
 
+    # Persist the full fade trajectory for inspection / the dissertation. The
+    # SOH column shows resets (back to 1.0) in any replacement year.
+    replaced = set(fade.replacement_years)
+    fade_df = pd.DataFrame(
+        {
+            "year": range(1, args.horizon_years + 1),
+            "soh_start_of_year": fade.soh_trajectory,
+            "annual_saving_gbp": fade.saving_stream,
+            "efc": fade.efc_per_year,
+            "replaced": [y in replaced for y in range(1, args.horizon_years + 1)],
+        }
+    )
+    RESULTS_DIR.mkdir(exist_ok=True)
+    fade_csv = RESULTS_DIR / f"stage2_fade_trajectory_{args.year}.csv"
+    fade_df.to_csv(fade_csv, index=False)
+
+    # Report the deepest fade actually reached, not the horizon-end value: if a
+    # replacement lands on the final year the SOH resets to 1.0 and would
+    # otherwise hide the fade entirely.
+    min_soh = min(fade.soh_trajectory)
+    min_saving = min(fade.saving_stream)
+
+    policy = (
+        "forced replacement at SOH_eol"
+        if args.replace_at_eol
+        else f"run-to-fade (replace only below SOH {args.soh_floor:.2f})"
+    )
     print("\n" + "=" * 56)
     print("FADE-ADJUSTED LIFETIME NPV")
     print("=" * 56)
-    print(f"  Effective battery life:  {fade.effective_life_years:.2f} years "
-          f"(from year-1 EFC {fade.efc_per_year[0]:.0f})")
+    print(f"  Policy:                  {policy}")
     print(f"  Replacement year(s):     "
           f"{fade.replacement_years if fade.replacement_years else 'none in horizon'}")
+    print(f"  Realised life (NPV):     {realised_life} years "
+          f"(first replacement at year "
+          f"{fade.replacement_years[0] if fade.replacement_years else '—'})")
+    print(f"  Yr-1 EFC extrapolation:  {fade.effective_life_years:.2f} years "
+          f"(diagnostic; from year-1 EFC {fade.efc_per_year[0]:.0f})")
+    print(f"  Min SOH reached:         {min_soh:.3f} "
+          f"(deepest fade before any replacement)")
     print(f"  Year-1 saving (GBP):     {fade.saving_stream[0]:,.2f}")
-    print(f"  Year-{args.horizon_years} saving (GBP):    {fade.saving_stream[-1]:,.2f}")
-    print(f"  SOH at end of horizon:   {fade.soh_trajectory[-1]:.3f}")
+    print(f"  Min annual saving (GBP): {min_saving:,.2f}  (at deepest fade)")
+    print(f"  Fade trajectory saved:   {fade_csv}")
     print("-" * 56)
     print(f"  PV of benefits (GBP)     {npv_fade.pv_benefits:11.2f}")
     print(f"  PV of costs (GBP)        {npv_fade.pv_costs:11.2f}")

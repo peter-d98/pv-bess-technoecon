@@ -64,6 +64,17 @@ class DegradationParams:
         SOC stress coefficient. ``0`` reproduces the SOC-independent baseline
         exactly. A positive value ages the cell faster at high SOC. The value is
         a citation dependency (Naumann et al.) and defaults to 0.
+    replace_at_eol:
+        Replacement policy. If True (sensitivity), the battery is replaced the
+        year its start-of-year SOH reaches ``soh_eol`` (a fixed end-of-life
+        trigger). If False (run-to-fade base case), the battery is *not*
+        replaced at ``soh_eol``; it keeps operating at faded capacity and is
+        only replaced if SOH falls to ``soh_floor``. This decouples the fade
+        curve anchor (``soh_eol``) from the replacement decision.
+    soh_floor:
+        Hard SOH floor for the run-to-fade policy: a replacement is forced if
+        start-of-year SOH reaches this value. Inert (``0``) by default so it
+        never binds; the runner sets it (e.g. 0.55) for the base case.
     """
 
     soh_eol: float = 0.80
@@ -73,6 +84,8 @@ class DegradationParams:
     soc_dependent_calendar: bool = False
     soc_ref: float = 0.50
     soc_stress_beta: float = 0.0
+    replace_at_eol: bool = True
+    soh_floor: float = 0.0
 
     def __post_init__(self) -> None:
         if not 0.0 < self.soh_eol < 1.0:
@@ -85,6 +98,8 @@ class DegradationParams:
             raise ValueError("calendar_form must be 'linear' or 'sqrt'.")
         if not 0.0 <= self.soc_ref <= 1.0:
             raise ValueError("soc_ref must be in [0, 1].")
+        if not 0.0 <= self.soh_floor < 1.0:
+            raise ValueError("soh_floor must be in [0, 1).")
 
 
 @dataclass
@@ -235,6 +250,13 @@ def simulate_capacity_fade(
     efc_per_year: list[float] = []
     replacement_years: list[int] = []
 
+    # The replacement trigger depends on policy: at soh_eol (forced-replacement
+    # sensitivity) or only at the hard soh_floor (run-to-fade base case). This
+    # keeps soh_eol as the fade-curve anchor, decoupled from the replacement.
+    replacement_threshold = (
+        params.soh_eol if params.replace_at_eol else params.soh_floor
+    )
+
     for t in range(1, horizon_years + 1):
         cal_mult = (
             float(np.mean(multipliers))
@@ -243,7 +265,7 @@ def simulate_capacity_fade(
         )
         soh = capacity_fade(efc_gen, float(years_gen), params, cal_mult)
 
-        if soh <= params.soh_eol:
+        if soh <= replacement_threshold:
             # Replace: a fresh battery starts operating this year.
             replacement_years.append(t)
             efc_gen = 0.0

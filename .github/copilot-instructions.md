@@ -46,7 +46,13 @@ Spec 01 (the NPV economic model) in `.github/specs/` is the worked reference exa
 | Max charge/discharge power | 3 kW |
 | Round-trip efficiency | 90.25% (η_c = η_d = 0.95) |
 | Usable SOC window | 10%–90% |
-| Baseline degradation cost | 5p/kWh cycled (scenario-level; `BatteryParams` default is 0) |
+| Baseline degradation cost | 5p/kWh cycled, **derived** from capex / (6000 EFC × 2 × 10 kWh) at runtime (scenario-level; `BatteryParams` default is 0) |
+| PV cost | £1,940/kWp |
+| Battery cost | £600/kWh (also the replacement cost + penalty basis) |
+| Hybrid inverter cost | £400/kW, sized to the PV array |
+| PV O&M | 1% of PV capital/yr (whole-system framing only) |
+| Component lives | battery 10 yr, inverter 10 yr (replaced with the battery; 15-yr warranty not separately modelled), PV 20 yr; SOH at EoL/replacement 80% (= 6000-EFC literature endpoint) |
+| Whole-system capex (4 kWp, 10 kWh) | £15,360 (PV £7,760 + inverter £1,600 + battery £6,000) |
 
 ## Technology Stack
 
@@ -119,4 +125,4 @@ These decisions have been made deliberately and should not be revisited without 
 - **Agile DST gap:** The spring DST transition produces 2 missing half-hours in the Agile CSV (17,518 rows instead of 17,520). The loader forward-fills these. The autumn DST duplicate is dropped.
 - **CREST automation (generate_demand_profile.py) requires Windows/macOS:** xlwings requires Microsoft Excel via COM. This script cannot run on Linux. Run it from Windows PowerShell using `\\wsl$\Ubuntu-22.04\...` UNC paths to access WSL files directly.
 - **Glasgow is the first test location** (55.83°N, 4.28°W). The PVGIS file in data/ is for Glasgow. South England and Midlands files will be added for v3.
-- **Baseline annual result (Glasgow, Agile, 10 kWh, 5p/kWh deg cost, £4,000 capex):** Annual saving £145.92 (2023 demand); NPV ≈ −£3,585 (5% real discount, 20-year horizon, 2% real price escalation, 12-year battery life); simple payback 27.4 years — not economically viable under baseline assumptions. **NPV, not payback, is the headline viability metric.**
+- **Baseline annual result (Glasgow, Agile, whole-system framing, 10 kWh, derived 5p/kWh deg cost, £15,360 system capex):** Annual saving £777.71 vs a grid-only counterfactual (2023 demand); NPV ≈ −£9,587 (5% real discount, 20-year horizon, 2% real price escalation, 10-year battery+inverter life, £7,600 replacement at year 10, PV O&M £77.60/yr); simple payback 19.8 years — not economically viable under baseline assumptions. **NPV, not payback, is the headline viability metric.** (The earlier battery-marginal baseline — £4,000 battery capex vs a PV-only counterfactual — gave annual saving £145.92 / NPV −£3,585.)

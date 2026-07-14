@@ -146,6 +146,43 @@ def test_o10_soh_trajectory_declines_then_resets():
     assert result.soh_trajectory[12] == pytest.approx(1.0, abs=1e-9)
 
 
+# --- Run-to-fade replacement policy ------------------------------------------
+
+def _pure_cycling_dispatch(cap, soc_max):
+    # EFC = 10000 / (2 * 10) = 500/yr, so additive cycle fade is 0.20 * t / 12.
+    return 150.0, 10000.0, np.full(48, 0.5)
+
+
+def test_run_to_fade_no_replacement_below_soh_eol():
+    # Run-to-fade with a floor that never binds: the battery keeps operating
+    # past soh_eol (0.80) and is never replaced within the horizon.
+    params = DegradationParams(
+        calendar_life_years=1e9, replace_at_eol=False, soh_floor=0.60
+    )
+    result = simulate_capacity_fade(_pure_cycling_dispatch, 10.0, 0.9, 20, params)
+
+    assert result.replacement_years == []
+    # SOH falls below soh_eol yet the battery is retained.
+    assert result.soh_trajectory[-1] < 0.80
+    assert result.soh_trajectory[-1] == pytest.approx(1 - 0.20 * 19 / 12, abs=1e-3)
+
+
+def test_run_to_fade_floor_forces_replacement():
+    # A higher floor (0.70) binds at year 19 (SOH reaches 0.70 there).
+    params = DegradationParams(
+        calendar_life_years=1e9, replace_at_eol=False, soh_floor=0.70
+    )
+    result = simulate_capacity_fade(_pure_cycling_dispatch, 10.0, 0.9, 20, params)
+
+    assert result.replacement_years == [19]
+    assert result.soh_trajectory[18] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_soh_floor_out_of_range_rejected():
+    with pytest.raises(ValueError):
+        DegradationParams(soh_floor=1.0)
+
+
 # --- O11: SOC exposure metrics -----------------------------------------------
 
 def test_o11_soc_exposure_constant():

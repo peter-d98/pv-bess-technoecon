@@ -32,6 +32,16 @@ before multi-location data and the parameter sweep.
 - Running across locations/sizes → **Spec 5**.
 - Plotting the NPV frontier → **Spec 6**.
 
+### Stated limitations
+- **Single replaceable component.** `compute_npv` models one component life
+  with a single replacement schedule and residual value. The hybrid inverter is
+  assumed to share the battery's life (10 years) and is replaced together with
+  it, folded into the replacement cost via `replacement_cost_factor`. Its longer
+  ~15-year warranty is therefore not modelled separately, so this is a mildly
+  conservative treatment (the inverter is "replaced" ~5 years early). PV panels
+  are assumed to last the full horizon (20-year warranty) and PV output
+  degradation is not modelled here.
+
 ## 3. Inputs
 
 The valuation consumes the **annual** result already produced by
