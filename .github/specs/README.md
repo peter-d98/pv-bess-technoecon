@@ -65,7 +65,7 @@ the dissertation.
 | # | Spec | Status | Depends on |
 |---|------|--------|-----------|
 | 1 | [NPV economic model](spec-01-npv-economic-model.md) | Implemented & accepted | — |
-| 2 | [Unified degradation + capacity-fade model](spec-02-degradation-capacity-fade.md) | Implemented | 1 |
+| 2 | [Unified degradation + capacity-fade model](spec-02-degradation-capacity-fade.md) | Implemented (core); SOC-max tradeoff deferred | 1 |
 | 3 | Tariff model layer (flat, E7, Agile, SEG export) | TODO | — |
 | 4 | Multi-location data ingestion (S England, Midlands, Scotland) | TODO | — |
 | 5 | Parameter-sweep harness + results schema | TODO | 1–4 |

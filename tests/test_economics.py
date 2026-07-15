@@ -155,6 +155,27 @@ def test_o9_residual_value_only():
     assert result.npv == pytest.approx(-666.67, abs=0.01)
 
 
+def test_terminal_residual_override():
+    econ = EconomicParams(
+        battery_capex=1000.0,
+        discount_rate=0.0,
+        horizon_years=20,
+        price_escalation=0.0,
+        battery_life_years=30.0,
+        include_residual_value=True,
+    )
+    # Explicit override replaces the default straight-line residual (333.33):
+    # NPV = -1000 initial + 300 residual (undiscounted at r=0) = -700.
+    result = compute_npv(0.0, econ, terminal_residual_value=300.0)
+    assert result.npv == pytest.approx(-700.0, abs=1e-6)
+
+
+def test_terminal_residual_negative_rejected():
+    econ = EconomicParams(battery_capex=1000.0, horizon_years=20)
+    with pytest.raises(ValueError):
+        compute_npv(0.0, econ, terminal_residual_value=-1.0)
+
+
 def test_cashflows_sum_to_npv():
     econ = EconomicParams(
         battery_capex=4000.0,

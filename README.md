@@ -42,10 +42,10 @@ sensitivity axis.
 |---|---|---|
 | Discount rate (real) | 5% | 3.5% (HMT Green Book), 7% |
 | Analysis horizon | 20 yr (PV life) | — |
-| Battery replacement | at each `k × life` within the horizon | — |
+| Battery replacement | run-to-fade base case (replace only if SOH hits a floor); forced replacement at end-of-life as a sensitivity | — |
 | Electricity price escalation (real) | 2%/yr | 0%, 4% |
-| Battery life | LFP, ~12 yr / 6,000 EFC to 80% capacity | — |
-| End-of-life / residual | replace at 80% capacity; straight-line residual credited at horizon | — |
+| Battery life | LFP, ~10 yr (warranty) / 6,000 EFC to 80% capacity | — |
+| End-of-life / residual | run-to-fade to a hard SOH floor; salvage of a faded pack taken as zero | — |
 
 ## Development Method
 
@@ -89,8 +89,12 @@ See `requirements.txt`. Key packages:
 - **v2 complete** — annual rolling-horizon MILP on real Glasgow 2023 data; input
   validation and controller-comparison reports in `docs/`.
 - **NPV economic model complete** (`src/economics.py`) — lifetime NPV, benefit–cost
-  ratio, and discounted payback. Baseline Glasgow (10 kWh, Agile, 5p/kWh, £4,000
-  capex) gives NPV ≈ **−£3,585** — not viable under base assumptions.
-- **In progress (v3)** — degradation/capacity-fade model, tariff layer,
-  multi-location ingestion, and the parameter-sweep harness. See
-  [.github/specs/](.github/specs/).
+  ratio, and discounted payback. Whole-system baseline Glasgow (4 kWp PV + 10 kWh
+  battery + hybrid inverter, £15,360 capex, Agile, derived 5p/kWh) gives NPV ≈
+  **−£9,587** (forced 10-yr replacement) or **−£6,425** (run-to-fade with warranty
+  residual credit) — not viable under base assumptions.
+- **Degradation & capacity-fade model complete** (`src/degradation.py`, Spec 02) —
+  derived throughput penalty, additive cycle + calendar fade, run-to-fade
+  replacement policy, and SOC-exposure metrics.
+- **In progress (v3)** — tariff layer, multi-location ingestion, and the
+  parameter-sweep harness. See [.github/specs/](.github/specs/).

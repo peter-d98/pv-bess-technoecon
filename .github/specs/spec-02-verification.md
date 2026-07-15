@@ -43,12 +43,16 @@ Hand-derivations for the non-obvious ones:
 - Recompute O1–O11 blind; all must match.
 - Verify `src/model.py` and `src/battery.py` are byte-identical to pre-Spec-02 (diff).
 - Check the escalation is applied **only** in the NPV layer, never inside `dispatch_year`.
-- Check replacement handling: on reset, EFC counter and calendar clock both zero, and the
-  NPV replacement year (`k·ceil(effective_life_years)`) is driven by `effective_life_years`.
-  Note `replacement_years` records the year a *fresh* battery starts operating (year 13 for a
-  12-year life); the NPV layer independently schedules the cost at `ceil(life)=12`. The
-  1-year offset is a labelling difference, not a double count.
-- Confirm fade-adjusted NPV ≤ flat-saving NPV (monotonicity: ageing cannot help).
+- Check replacement handling: on reset, EFC counter and calendar clock both zero. The NPV
+  replacement schedule is driven by the **realised** life (`replacement_years[0] − 1`, or
+  `> horizon` when the battery is never replaced), not the diagnostic `effective_life_years`.
+  `replacement_years` records the year a *fresh* battery starts operating; the NPV books the
+  cost at `ceil(realised_life)`. Salvage is off (`include_residual_value=False`) for the fade
+  valuation.
+- Confirm the **forced-replacement** fade sensitivity (`--replace-at-eol`) NPV ≤ the
+  constant-saving flat NPV at the same life (monotonicity: ageing cannot help *for a fixed
+  replacement policy*). Do **not** expect run-to-fade ≤ flat — run-to-fade legitimately
+  defers the replacement and is therefore higher.
 - Confirm `soc_dependent_calendar=True, beta=0` reproduces the baseline exactly (no
   accidental behavioural change from the sensitivity switch).
 
@@ -74,4 +78,18 @@ Hand-derivations for the non-obvious ones:
   DoD dependence) written up for the dissertation limitations section.
 
 ### Acceptance record
-- _(to be completed at acceptance)_ — reviewer, date, oracle results, residual issues.
+- **2026-07-15 — Independent AI reviewer — PASS.** All oracles O1–O9 re-derived
+  blind (from the method equations, not the expected columns) and matched the
+  implementation exactly: O1 3.333 p/kWh, O2 6000 EFC, O3 SOH 0.975185, O4/O5 SOH
+  0.800000, O6 0.0248148/yr → 8.060 yr, O7 φ_cal 0.054433, O9 0. Baseline derived
+  penalty independently confirmed 5.00 p/kWh (£6000 / 6000 EFC / 10 kWh). Terminal
+  warranty-residual traced (horizon 20, warranty 10, replacement_years [18] →
+  realised_life 17, install_t 17, age 3, remaining 0.7, residual £5,320) — logic
+  sound, the realised_life = replacement_years[0]−1 / ceil-booking timing is
+  internally consistent (no off-by-one). `compute_npv` override precedence,
+  non-negativity validation, and discounted final-year crediting confirmed.
+  `src/model.py` and `src/battery.py` byte-identical (empty diff). 53/53 tests pass.
+  Fade reset and decoupled soh_eol-vs-soh_floor threshold logic correct.
+  Residual issues: none blocking. Notes: (i) add one sentence to the write-up on the
+  year-17-vs-18 replacement-timing convention; (ii) `DegradationParams` defaults
+  remain literature-citation dependencies.

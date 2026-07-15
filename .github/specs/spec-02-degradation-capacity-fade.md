@@ -1,6 +1,6 @@
 # Spec 02 — Unified Degradation & Capacity-Fade Model
 
-**Status:** Drafted · **Owner:** — · **Depends on:** Spec 01 (NPV) · **Blocks:** Specs 5, 6
+**Status:** Implemented (core) · SOC-max tradeoff deferred (§9) · **Owner:** — · **Depends on:** Spec 01 (NPV) · **Blocks:** Specs 5, 6
 
 ## 1. Purpose
 
@@ -96,15 +96,18 @@ lifetime_throughput_kwh = cycle_life_efc * 2 * capacity_kwh_nominal
 c_thr = battery_capex / lifetime_throughput_kwh          # GBP per kWh (charge+discharge)
 ```
 
-Baseline oracle: `battery_capex = 4000`, `cycle_life_efc = 6000`,
+**Function oracle (O1):** `battery_capex = 4000`, `cycle_life_efc = 6000`,
 `capacity_kwh = 10` → `lifetime_throughput = 120,000 kWh` →
-`c_thr = 0.033333 GBP/kWh ≈ 3.33 p/kWh`.
+`c_thr = 0.033333 GBP/kWh ≈ 3.33 p/kWh`. This is a fixed-input **unit-test** oracle,
+not the baseline.
 
-This derived value is **lower than the 5 p/kWh placeholder** used to date. That is a
-legitimate finding, not an error: 5 p/kWh is retained as a sensitivity point, and the
-derived ~3.3 p/kWh becomes the physically-grounded default. (If a *usable*-basis
-convention were adopted instead — `2 × usable_kwh` in the denominator — the value rises
-to ~4.2 p/kWh; the nominal basis is chosen for consistency with EFC counting.)
+**Baseline penalty:** with the general-cost baseline (`battery_capex = 6000`
+= 10 kWh × £600/kWh, `cycle_life_efc = 6000`, `capacity_kwh = 10`) →
+`lifetime_throughput = 120,000 kWh` → `c_thr = 0.05 GBP/kWh = 5 p/kWh`. The derived
+penalty therefore **coincides with the long-standing 5 p/kWh placeholder** — which is
+now physically grounded rather than assumed, not a separate sensitivity. (A *usable*-basis
+convention — `2 × usable_kwh` in the denominator — would raise it to ~6.25 p/kWh; the
+nominal basis is chosen for consistency with EFC counting.)
 
 ### 4.2 Equivalent full cycles
 
@@ -154,10 +157,11 @@ governed by policy:
 - **Run-to-fade (base case, `replace_at_eol=False`).** The battery is *not* replaced
   at `soh_eol`; it keeps operating at faded capacity, delivering a **declining**
   saving stream. A replacement is forced only if start-of-year SOH falls to the hard
-  `soh_floor` (e.g. 0.55). This reflects realistic homeowner behaviour (a working,
-  gently-faded battery is not scrapped on a fixed date) and is the only regime in
-  which degradation-aware dispatch can affect replacement timing (less throughput →
-  slower fade → later/absent floor crossing).
+  `soh_floor` (baseline **0.60**, a literature-defensible end-of-life threshold). This
+  reflects realistic homeowner behaviour (a working, gently-faded battery is not
+  scrapped on a fixed date) and is the only regime in which degradation-aware dispatch
+  can affect replacement timing (less throughput → slower fade → later/absent floor
+  crossing).
 - **Forced replacement (sensitivity, `replace_at_eol=True`).** The battery is replaced
   the year SOH reaches `soh_eol` — a fixed end-of-life trigger, retained as a
   pessimistic bound.
@@ -165,8 +169,9 @@ governed by policy:
 On replacement, SOH resets to 1, the EFC counter and calendar clock reset, and a
 replacement capex lands in the NPV that year. Because the budget is shared additively,
 combined cycling + calendar reaches a given SOH **sooner** than either figure alone.
-Salvage value of a deeply-faded pack at the horizon end is taken as zero (the residual
-credit is switched off for the fade valuation); this is mildly conservative.
+The battery+inverter in service at the horizon end is credited its **unconsumed
+warranty value** — straight-line over the warranty life, discounted (§4.6) — rather than
+assumed worthless; a unit older than its warranty contributes zero.
 
 Usable capacity handed to the next annual dispatch:
 ```
@@ -184,19 +189,28 @@ dispatch_year(capacity_kwh, soc_max) -> (annual_saving, throughput_kwh, soc_seri
 ```
 
 Per year `t = 1 … horizon`:
-1. `SOH_t` from accumulated EFC + calendar time (§4.5); if `≤ soh_eol`, replace first.
+1. `SOH_t` from accumulated EFC + calendar time (§4.5); if `≤` the replacement
+   threshold (§4.5: `soh_eol` if `replace_at_eol`, else `soh_floor`), replace first.
 2. `capacity_kwh_year = capacity_kwh_nominal * SOH_t`.
 3. `saving_t, throughput_t, soc_t = dispatch_year(capacity_kwh_year, soc_max)`.
 4. Accumulate EFC from `throughput_t`; advance calendar clock.
 
 Returns: `saving_stream` (length `horizon`), `soh_trajectory`, `effective_life_years`
-(first year SOH crosses `soh_eol` under simulated usage), and `replacement_years`.
+(first year SOH crosses `soh_eol` under year-1 usage — a **diagnostic** extrapolation),
+and `replacement_years`.
 
 **Coupling to Spec 01:** the runner passes `saving_stream` to
-`compute_npv(saving_stream, econ)` and sets `econ.battery_life_years =
-effective_life_years` so the NPV replacement schedule (`k·ceil(life)`) aligns with the
-fade-derived replacements. `compute_npv` is used unchanged (its per-year-stream
-interface was built for exactly this).
+`compute_npv(saving_stream, econ)` and sets `econ.battery_life_years` to the **realised**
+replacement life from the simulation (`replacement_years[0] − 1`, or `> horizon` if the
+battery is never replaced), so the NPV replacement schedule aligns with the fade
+trajectory actually valued — *not* the year-1 EFC extrapolation `effective_life_years`,
+which is kept only as a diagnostic. The battery+inverter running in the final year is
+credited its unconsumed **warranty** value via `compute_npv`'s `terminal_residual_value`
+override: `remaining_frac = max(0, (warranty − age)/warranty)` × replacement capex, where
+`age = horizon − install_year` and `install_year` is the latest NPV replacement booking
+(`k·ceil(realised_life)`, or 0 if never replaced). This is discounted to the horizon
+end inside `compute_npv`. `compute_npv` gains only this one optional argument; its core
+is otherwise unchanged (the per-year-stream interface was built for exactly this).
 
 Price escalation stays in the NPV cash-flow layer, **not** inside the dispatch: a uniform
 real escalation scales all prices equally and does not change the optimal schedule, so
@@ -260,12 +274,15 @@ class FadeResult:
 
 - `scripts/run_stage2.py`: after the single-capacity solve, run
   `simulate_capacity_fade` with a `dispatch_year` closure wrapping `solve_year` +
-  `battery_annual_costs` + `counterfactual_cost`, then feed `saving_stream` and
-  `effective_life_years` into the existing NPV block. Report fade-adjusted NPV
-  **alongside** (not replacing) the flat-saving NPV, so the effect of fade is visible.
+  `battery_annual_costs` + the framing counterfactual (grid-only for whole-system,
+  PV-only for battery-marginal), then feed `saving_stream` and the realised replacement
+  life into the existing NPV block. Report fade-adjusted NPV **alongside** (not replacing)
+  the flat-saving NPV, so the effect of fade is visible.
 - Default in-dispatch `degradation_cost_per_kwh` sourced from
-  `derive_throughput_penalty(...)` (≈3.3 p/kWh) with 5 p/kWh retained as a CLI/sensitivity.
-- Add the `soc_max` tradeoff and the SOC-exposure print/plot.
+  `derive_throughput_penalty(...)` (≈ 5 p/kWh at the general-cost baseline); overridable
+  via `--deg-cost`.
+- SOC-exposure metrics are printed. The `soc_max` (90 % vs 80 %) tradeoff is **deferred**
+  (see §9) — not yet built.
 - **No changes** to `src/model.py` or `src/battery.py`.
 
 ## 7. Tests (`tests/test_degradation.py`)
@@ -286,29 +303,50 @@ Hand-checkable oracles (compute independently, do not read from the module):
 | O10 | `simulate_capacity_fade` with stub dispatch (const throughput → life 12 yr, saving 150) | saving stream constant-per-generation, `effective_life=12`, `replacement_years=[13]` (a fresh battery starts operating in year 13, after 12 years of service) |
 | O11 | `soc_exposure` on constant `soc=0.5` day | `mean_soc=0.5`, `frac_time_above(0.8)=0.0` |
 
-Plus: full existing suite (32 tests) still passes.
+Plus: the full suite (51 tests) passes.
 
 ## 8. Acceptance criteria (MUST unless marked SHOULD)
 
 - `src/degradation.py` implemented with the §5 interface.
-- All O1–O11 oracles pass; existing 32 tests still pass.
+- All O1–O11 oracles pass; the full test suite is green (51 tests: 48 pre-existing +
+  3 run-to-fade policy tests).
 - `run_stage2.py` reports fade-adjusted NPV alongside the flat NPV for baseline Glasgow,
   with the derived throughput penalty, and prints SOC-exposure metrics.
-- Baseline fade-adjusted NPV recorded and compared to the flat-saving NPV (≈ −£3,585);
-  fade-adjusted NPV MUST be ≤ flat NPV (ageing cannot improve economics).
-- Upper-SOC-bound tradeoff (90 % vs 80 %) produces a comparison table (SHOULD: plot).
+- Baseline NPVs recorded (whole-system Glasgow, general-cost baseline): flat-saving NPV
+  ≈ −£9,587 (forced replacement at 10 yr); run-to-fade fade-adjusted NPV ≈ −£6,425
+  (BCR 0.656; 0.60 SOH floor; one replacement at year 18; min SOH 0.601; year-1 → min
+  saving £777.71 → £739.52; warranty-residual credit £5,320 at the horizon). **Monotonicity
+  note:** run-to-fade is *higher* (less negative) than the flat NPV because it defers
+  replacement and credits the residual — they use different replacement policies and are
+  not directly comparable. The valid ageing-monotonicity check is that the
+  **forced-replacement** fade sensitivity (`--replace-at-eol`) is ≤ the constant-saving
+  NPV at the same 10-yr life.
 - `src/model.py` and `src/battery.py` unchanged (verified by diff).
 - Independent verification per `spec-02-verification.md` completed.
+- **SHOULD (deferred):** upper-SOC-bound tradeoff (90 % vs 80 %) comparison table/plot —
+  not yet built; parked in §9 as it is an analysis output, not a dependency of Spec 03.
 
 ## 9. Open decisions
 
 - **Penalty basis (nominal vs usable):** RESOLVED — nominal, for consistency with EFC
-  counting. Usable basis retained only as a documented alternative (~4.2 p/kWh).
-- **`calendar_life_years` default:** 13.5 (midpoint of the 12–15 yr range). Citation pending.
+  counting. Usable basis retained only as a documented alternative (~6.25 p/kWh).
+- **`calendar_life_years`:** the module default is 13.5 (midpoint of the 12–15 yr range),
+  but the **baseline uses 10 yr** (matching the battery warranty), set via
+  `--calendar-life-years`. Citation for the 10 yr / 6000 EFC → 80 % pairing still pending.
 - **SOC stress coefficient (`soc_stress_beta`) and form:** citation dependency (Naumann
   et al.); default 0 (SOC-independent) until sourced. Level B is a sensitivity only.
-- **Adopt derived ~3.3 p/kWh as the headline baseline** (vs keeping 5 p/kWh): confirm with
-  supervisor; both reported regardless.
+- **Derived penalty = 5 p/kWh:** RESOLVED — the general-cost baseline (£6000 battery,
+  6000 EFC, 10 kWh) derives exactly 5 p/kWh, so the derived penalty *is* the baseline
+  (the earlier 3.3 p/kWh figure came from the retired £4000 battery-marginal capex).
+- **End-of-horizon replacement (RESOLVED):** under run-to-fade the `soh_floor` can trigger
+  a replacement late in the horizon (near PV end-of-life), so a fresh battery+inverter
+  captures little service. Rather than suppress such replacements with an arbitrary
+  "no-replace-in-last-K-years" rule, the unconsumed **warranty** value of the in-service
+  unit is **credited back** to the NPV (straight-line over warranty life, discounted; §4.6).
+  This is more defensible and needs no extra tuning parameter.
+- **Upper-SOC-bound tradeoff (90 % vs 80 %):** DEFERRED — not yet built; it is an analysis
+  output rather than a Spec 03 dependency, so it can be delivered later (Spec 05/06 harness
+  or a dedicated analysis pass).
 
 ## 10. References (supporting the fade model)
 
@@ -320,10 +358,11 @@ coefficient is hard-coded from memory, and the Level B SOC-stress coefficient
 | Modelling choice | Source | What it supports |
 |---|---|---|
 | Throughput-driven fade; DoD/rainflow excluded | **Wang et al. (2011)**, *J. Power Sources* — "Cycle-life model for graphite–LiFePO₄ cells" | LFP capacity fade is dominated by charge (Ah) throughput and temperature, and is largely **DoD-independent** over a wide range → justifies §4.1 penalty and §4.3 linear-in-throughput cycle fade, and the exclusion of DoD/rainflow |
-| Linear cycle fade vs equivalent full cycles | **Naumann et al. (2020)**, *J. Power Sources* — "Analysis and modeling of cycle aging of a commercial LiFePO₄/graphite cell" | cyclic capacity loss modelled against full-equivalent cycles / throughput → §4.3, `cycle_life_efc` |
+| Linear cycle fade vs equivalent full cycles | **Naumann et al. (2020)**, *J. Power Sources* — "Analysis and modeling of cycle aging of a commercial LiFePO₄/graphite cell" | cyclic capacity loss modelled against full-equivalent cycles (6000 EFC to 80% SOH) / throughput → §4.3, `cycle_life_efc` |
 | √t calendar fade; SOC- & temperature-dependent rate | **Naumann et al. (2018)**, *J. Energy Storage* — "Analysis and modeling of calendar aging of a commercial LiFePO₄/graphite cell" | LFP calendar loss follows a √t (SEI-growth) law with rate rising with SOC and temperature → §4.4 √t sensitivity, §4.4 Level B SOC-dependent calendar, and the constant-reference-temperature framing |
 | Additive superposition of calendar + cycle stress | **Xu et al. (2018)**, *IEEE Trans. Smart Grid* — "Modeling of Li-Ion Battery Degradation for Cell Life Assessment" | semi-empirical combination of calendar and cycle contributions → §4.5 additive SOH |
 | Throughput/opportunity cost of degradation | **Collath et al. (2023)**, *J. Energy Storage* | economic interpretation of degradation cost → context for §4.1 penalty derivation |
+| Whole system capex data | https://www.gov.uk/government/statistics/solar-pv-cost-data (PV costs), https://www.spiritenergy.co.uk/kb-battery-storage-for-solar-residential-economics (battery and inverter costs) | per kwh and per kwp capex for UK battery and PV in 2026. |
 
 Note: the **descriptive SOC-exposure metrics (§4.7, Level A)** require no literature
 coefficients — they are computed directly from the solved SOC trajectory. Only the Level B

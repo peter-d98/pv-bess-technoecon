@@ -218,9 +218,10 @@ def main() -> None:
                              "replacement sensitivity). Default (unset): run-to-fade base case "
                              "— keep operating the ageing battery, replacing only if SOH falls "
                              "to --soh-floor.")
-    parser.add_argument("--soh-floor", type=float, default=0.55, metavar="FRAC",
+    parser.add_argument("--soh-floor", type=float, default=0.60, metavar="FRAC",
                         help="Run-to-fade hard SOH floor: force a replacement if the battery "
-                             "fades to this SOH within the horizon. Default: 0.55")
+                             "fades to this SOH within the horizon. Default: 0.60 "
+                             "(literature-defensible end-of-life threshold)")
     parser.add_argument("--year", type=int, default=2023,
                         help="Reference calendar year for the canonical index. Default: 2023")
     parser.add_argument("--terminal-soc-daily", action="store_true",
@@ -433,12 +434,29 @@ def _report_degradation(
         realised_life = fade.replacement_years[0] - 1
     else:
         realised_life = args.horizon_years + 1  # survives the horizon; no replacement
-    # Salvage of a deeply-faded pack is taken as zero (the residual-value credit
-    # is switched off for the fade valuation); this is mildly conservative.
-    econ_fade = replace(
-        econ, battery_life_years=realised_life, include_residual_value=False
+
+    # Credit the unconsumed *warranty* value of the battery+inverter in service
+    # at the horizon end (straight-line over the warranty life, discounted). The
+    # NPV books each replacement at t = k·ceil(realised_life); the unit running
+    # in the final year was installed at the latest such t (or t = 0 if never
+    # replaced). Depreciating over the warranty life (not the longer realised
+    # life) is the more conservative, more defensible book-value convention.
+    horizon = args.horizon_years
+    warranty = args.battery_life_years
+    replacement_capex = econ.battery_capex * econ.replacement_cost_factor
+    if fade.replacement_years and realised_life < horizon:
+        k_last = (horizon - 1) // realised_life          # largest k with k·life < horizon
+        install_t = k_last * realised_life
+    else:
+        install_t = 0
+    age_at_horizon = horizon - install_t
+    remaining_frac = max(0.0, (warranty - age_at_horizon) / warranty)
+    terminal_residual = replacement_capex * remaining_frac
+
+    econ_fade = replace(econ, battery_life_years=realised_life)
+    npv_fade = compute_npv(
+        fade.saving_stream, econ_fade, terminal_residual_value=terminal_residual
     )
-    npv_fade = compute_npv(fade.saving_stream, econ_fade)
 
     # Persist the full fade trajectory for inspection / the dissertation. The
     # SOH column shows resets (back to 1.0) in any replacement year.
@@ -482,6 +500,8 @@ def _report_degradation(
           f"(deepest fade before any replacement)")
     print(f"  Year-1 saving (GBP):     {fade.saving_stream[0]:,.2f}")
     print(f"  Min annual saving (GBP): {min_saving:,.2f}  (at deepest fade)")
+    print(f"  Terminal residual (GBP): {terminal_residual:,.2f}  (unused warranty "
+          f"value at yr {horizon}, age {age_at_horizon} of {warranty:.0f})")
     print(f"  Fade trajectory saved:   {fade_csv}")
     print("-" * 56)
     print(f"  PV of benefits (GBP)     {npv_fade.pv_benefits:11.2f}")

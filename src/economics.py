@@ -80,6 +80,7 @@ class NPVResult:
 def compute_npv(
     annual_saving: float | Sequence[float],
     econ: EconomicParams,
+    terminal_residual_value: float | None = None,
 ) -> NPVResult:
     """Compute the lifetime NPV of the battery investment.
 
@@ -93,6 +94,14 @@ def compute_npv(
         as the battery ages). Price escalation is applied on top in both cases.
     econ:
         Economic assumptions.
+    terminal_residual_value:
+        Optional explicit residual value (real GBP, undiscounted) credited as an
+        inflow in the final horizon year. When supplied it **overrides** the
+        default straight-line-over-``battery_life_years`` residual credit; the
+        fade model uses it to credit the unconsumed *warranty* value of whatever
+        battery is in service at the horizon end, computed against the fade-
+        derived replacement schedule rather than a uniform life. Must be
+        non-negative.
 
     Returns
     -------
@@ -100,6 +109,8 @@ def compute_npv(
         NPV, benefit-cost ratio, discounted payback, the present value of
         benefits and of costs, and the full annual cash-flow table.
     """
+    if terminal_residual_value is not None and terminal_residual_value < 0:
+        raise ValueError("terminal_residual_value must be non-negative.")
     n = econ.horizon_years
     r = econ.discount_rate
     esc = econ.price_escalation
@@ -132,9 +143,14 @@ def compute_npv(
             replacement_outflow[k * life - 1] = replacement_cost  # year index t = k*life
             k += 1
 
-    # Residual value of the battery still in service at the horizon end.
+    # Residual value of the battery still in service at the horizon end. An
+    # explicit terminal_residual_value (e.g. warranty-based, from the fade
+    # schedule) takes precedence; otherwise fall back to the default
+    # straight-line-over-life credit assuming a uniform replacement schedule.
     residual_inflow = np.zeros(n)
-    if econ.include_residual_value and replacement_cost >= 0:
+    if terminal_residual_value is not None:
+        residual_inflow[n - 1] = float(terminal_residual_value)
+    elif econ.include_residual_value and replacement_cost >= 0:
         # Battery in service during the final year was installed at t_install.
         m = math.ceil(n / life) - 1
         t_install = m * life

@@ -134,9 +134,17 @@ NPV = -battery_capex
 - **Benefit–cost ratio** = PV(benefits) / PV(costs).
 
 ### 4.5 Residual value / end-of-horizon
-- Base case: **no residual value** at the horizon end (conservative).
-- If a battery is replaced late in the horizon, optionally credit a linear
-  straight-line residual of the remaining life. Mark as a sensitivity, default off.
+- Default: straight-line residual over `battery_life_years` for the battery still
+  in service at the horizon end (`include_residual_value`, on by default),
+  assuming a uniform `k·ceil(life)` replacement schedule.
+- **Override (`terminal_residual_value`):** the caller may pass an explicit
+  residual (real GBP, undiscounted, credited in the final year), which takes
+  precedence over the default. The fade model (Spec 02) uses this to credit the
+  unconsumed **warranty** value of whatever battery+inverter is in service at the
+  horizon end — straight-line over the warranty life against the fade-derived
+  (non-uniform) replacement schedule, which the default uniform-schedule formula
+  cannot express. Depreciating over the warranty (not the longer realised life)
+  is the more conservative, more defensible book-value convention.
 
 ## 5. Interface
 
@@ -153,8 +161,9 @@ class NPVResult:
     cashflows: pd.DataFrame          # year, benefit, capex, discounted
 
 def compute_npv(
-    annual_saving: float,
+    annual_saving: float | Sequence[float],
     econ: EconomicParams,
+    terminal_residual_value: float | None = None,
 ) -> NPVResult: ...
 ```
 
