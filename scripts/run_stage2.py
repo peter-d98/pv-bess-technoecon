@@ -37,13 +37,14 @@ from src.degradation import (
 )
 from src.economics import EconomicParams, compute_npv
 from src.model import solve_dispatch
+from src.tariffs import TariffRates, build_tariff
 
 DATA_DIR = REPO_ROOT / "data"
 RESULTS_DIR = REPO_ROOT / "results"
 
 DEFAULT_PV = DATA_DIR / "Timeseries_55.829_-4.276_SA3_4kWp_crystSi_14_35deg_0deg_2023_2023.csv"
-DEFAULT_DEMAND = DATA_DIR / "demand_halfhourly_2023.csv"
-DEFAULT_AGILE = DATA_DIR / "agile-half-hour-actual-rates-01-01-2023_31-12-2023.csv"
+DEFAULT_DEMAND = DATA_DIR / "demand_halfhourly_2025.csv"
+DEFAULT_AGILE = DATA_DIR / "agile-half-hour-actual-rates-01-01-2025_31-12-2025_SScot.csv"
 
 DT_HOURS = 0.5
 
@@ -140,6 +141,23 @@ def grid_only_cost(data: pd.DataFrame) -> dict[str, float]:
     }
 
 
+def grid_only_flat_cost(data: pd.DataFrame, flat_rate: float) -> dict[str, float]:
+    """Annual energy cost for a do-nothing household on the standard FLAT tariff.
+
+    No PV, no battery: every unit of demand is imported at a single flat rate
+    (independent of the system's chosen tariff). This is the headline
+    whole-system counterfactual — the honest "what if the household does
+    nothing" alternative against which installing PV+BESS (and possibly
+    switching tariff) is judged.
+    """
+    import_cost = float(data["demand_kw"].sum() * DT_HOURS * flat_rate)
+    return {
+        "import_cost": import_cost,
+        "export_revenue": 0.0,
+        "net_cost": import_cost,
+    }
+
+
 def battery_annual_costs(schedule: pd.DataFrame, battery: BatteryParams) -> dict[str, float]:
     """Aggregate the solved annual schedule into a cost breakdown."""
     import_cost = float((schedule["p_import_kw"] * schedule["import_price"]).sum() * DT_HOURS)
@@ -190,6 +208,17 @@ def main() -> None:
                              "initial capex is the whole system. 'battery-marginal': "
                              "counterfactual is PV-only, initial capex is the battery. "
                              "Default: whole-system")
+    parser.add_argument("--tariff", choices=("flat", "e7", "agile"), default="agile",
+                        help="Import tariff (Spec 03). 'flat' single-rate, 'e7' Economy 7, "
+                             "'agile' dynamic (from the CSV). Default: agile")
+    parser.add_argument("--export", choices=("matched", "seg", "agile", "none"),
+                        default="matched",
+                        help="Export tariff. 'matched': flat/e7 -> flat SEG, agile -> Agile "
+                             "export. 'seg' flat SEG, 'agile' dynamic export, 'none' 0p. "
+                             "Default: matched")
+    parser.add_argument("--seg-rate", type=float, default=None, metavar="GBP_PER_KWH",
+                        help="Override the flat SEG export rate (GBP/kWh). Default: the "
+                             "national-average SEG in TariffRates (0.13).")
     parser.add_argument("--discount-rate", type=float, default=0.05, metavar="RATE",
                         help="Real discount rate for NPV. Default: 0.05")
     parser.add_argument("--horizon-years", type=int, default=20, metavar="YEARS",
@@ -222,8 +251,10 @@ def main() -> None:
                         help="Run-to-fade hard SOH floor: force a replacement if the battery "
                              "fades to this SOH within the horizon. Default: 0.60 "
                              "(literature-defensible end-of-life threshold)")
-    parser.add_argument("--year", type=int, default=2023,
-                        help="Reference calendar year for the canonical index. Default: 2023")
+    parser.add_argument("--year", type=int, default=2025,
+                        help="Reference calendar year for the canonical index. Default: 2025 "
+                             "(matches the 2025 Agile + demand; PV is 2023, aligned "
+                             "positionally).")
     parser.add_argument("--terminal-soc-daily", action="store_true",
                         help="Force each day to end at its initial SOC (self-contained days).")
     parser.add_argument("--plot-date", type=str, default=None, metavar="YYYY-MM-DD",
@@ -264,9 +295,23 @@ def main() -> None:
 
     print("Loading and aligning data...")
     data = load_all(args.pv_file, args.demand_file, args.agile_file, year=args.year)
+
+    # Spec 03: replace the default (Agile) price columns with the selected tariff.
+    # For --tariff agile --export matched this reproduces the Agile CSV prices
+    # exactly, so the default behaviour is unchanged.
+    rates = TariffRates()
+    imp, exp = build_tariff(
+        args.tariff, data.index, rates, agile_path=args.agile_file,
+        export=args.export, seg_rate=args.seg_rate,
+    )
+    data["import_price"] = imp.to_numpy()
+    data["export_price"] = exp.to_numpy()
+
     print(f"  {len(data):,} half-hourly periods ({len(data) // HALFHOURS_PER_DAY} days)")
     print(f"  PV total:     {data['pv_kw'].sum() * DT_HOURS:8.0f} kWh/yr")
     print(f"  Demand total: {data['demand_kw'].sum() * DT_HOURS:8.0f} kWh/yr")
+    print(f"  Tariff:       {args.tariff} import / {args.export} export "
+          f"(mean import {data['import_price'].mean() * 100:.2f} p/kWh)")
 
     battery = BatteryParams(
         capacity_kwh=args.battery_cap,
@@ -285,50 +330,66 @@ def main() -> None:
     #                 imported); initial outlay is the whole PV+inverter+battery.
     #   battery-marginal: vs a household that already owns PV but no battery;
     #                 initial outlay is the battery only.
+    # Framing selects the counterfactual and the initial capital outlay.
+    #   whole-system: the HEADLINE counterfactual is a do-nothing household — no
+    #                 PV, no battery, all demand imported on the standard FLAT
+    #                 tariff (not the system's tariff). Initial outlay = whole
+    #                 system. A same-tariff grid-only cost is also reported as a
+    #                 decomposition (isolating PV-BESS value from tariff switch).
+    #   battery-marginal: vs a household that already owns PV (same tariff);
+    #                 initial outlay is the battery only.
     if args.framing == "whole-system":
-        cf = grid_only_cost(data)
+        cf = grid_only_flat_cost(data, rates.flat_rate)
+        cf_same = grid_only_cost(data)
         initial_capex = args.system_capex
         # The hybrid inverter is assumed to share the battery's 10-yr life, so
         # the two are replaced together; PV persists for the horizon.
         replacement_capex = args.battery_capex + inverter_capex
     else:
         cf = counterfactual_cost(data)
+        cf_same = None
         initial_capex = args.battery_capex
         replacement_capex = args.battery_capex
 
     # Q9: the degradation cost is NOT subtracted from the annual saving. Wear is
-    # priced once, via the explicitly-timed battery replacement in the NPV;
-    # deducting it here too would double-count. It is reported as a diagnostic.
+    # priced once, via the explicitly-timed battery replacement in the NPV.
     annual_savings = cf["net_cost"] - bat["net_cost"]
     payback_years = initial_capex / annual_savings if annual_savings > 0 else float("inf")
 
-    print("\n" + "=" * 56)
-    print("ANNUAL TECHNO-ECONOMIC VIABILITY ASSESSMENT")
-    print("=" * 56)
-    print(f"Degradation cost assumption: {args.deg_cost * 100:.2f} p/kWh "
-          f"({'derived' if deg_cost_is_derived else 'user override'})")
-    cf_label = "Grid-only" if args.framing == "whole-system" else "PV, no batt"
-    print(f"Framing: {args.framing} (initial capex GBP {initial_capex:,.0f}, "
-          f"replacement GBP {replacement_capex:,.0f})")
-    print(f"Battery: {args.battery_cap:.1f} kWh / {args.max_power:.0f} kW")
-    print(f"Capex: PV GBP {pv_capex:,.0f} + inverter GBP {inverter_capex:,.0f} + "
-          f"battery GBP {args.battery_capex:,.0f} = GBP {args.system_capex:,.0f}")
-    print("-" * 56)
-    print(f"                        PV+battery   {cf_label}")
-    print(f"  Import cost (GBP)     {bat['import_cost']:11.2f}  {cf['import_cost']:11.2f}")
-    print(f"  Export revenue (GBP)  {bat['export_revenue']:11.2f}  {cf['export_revenue']:11.2f}")
-    print(f"  Net energy cost (GBP) {bat['net_cost']:11.2f}  {cf['net_cost']:11.2f}")
-    print("-" * 56)
-    print(f"  Battery throughput:   {bat['throughput_kwh']:,.0f} kWh/yr "
-          f"({bat['throughput_kwh'] / (2 * args.battery_cap):.0f} equiv. full cycles)")
-    print(f"  Degradation cost:     GBP {bat['degradation_cost']:,.2f}/yr "
-          f"(diagnostic; not deducted from saving)")
-    print(f"  Annual saving:        GBP {annual_savings:,.2f}  (net energy cost reduction)")
-    if np.isfinite(payback_years):
-        print(f"  Simple payback:       {payback_years:.1f} years")
+    print("\n" + "=" * 60)
+    print("ANNUAL TECHNO-ECONOMIC ASSESSMENT")
+    print("=" * 60)
+    print(f"Tariff:  {args.tariff} import / {args.export} export "
+          f"(mean import {data['import_price'].mean() * 100:.2f} p/kWh)")
+    print(f"Framing: {args.framing}; deg cost {args.deg_cost * 100:.2f} p/kWh "
+          f"({'derived' if deg_cost_is_derived else 'override'})")
+    print(f"Capex:   PV {pv_capex:,.0f} + inverter {inverter_capex:,.0f} + battery "
+          f"{args.battery_capex:,.0f} = GBP {initial_capex:,.0f}")
+    print("-" * 60)
+    print(f"  Operating cost, PV+battery (GBP/yr):  {bat['net_cost']:10.2f}")
+    print(f"    (import {bat['import_cost']:.2f} - export {bat['export_revenue']:.2f})")
+    if args.framing == "whole-system":
+        print(f"  Counterfactual: grid-only @ flat {rates.flat_rate * 100:.2f}p: "
+              f"{cf['net_cost']:10.2f}")
+        print(f"  Annual saving (headline):             {annual_savings:10.2f}")
+        saving_same = cf_same["net_cost"] - bat["net_cost"]
+        tariff_switch = cf["net_cost"] - cf_same["net_cost"]
+        print("  -- decomposition (sensitivity) --")
+        print(f"     grid-only @ this tariff:           {cf_same['net_cost']:10.2f}")
+        print(f"     PV-BESS saving (same tariff):      {saving_same:10.2f}")
+        print(f"     tariff-switch effect:              {tariff_switch:10.2f}")
     else:
-        print(f"  Simple payback:       never (battery not economic at this deg cost)")
-    print("=" * 56)
+        print(f"  Counterfactual: PV-only (same tariff): {cf['net_cost']:10.2f}")
+        print(f"  Annual saving (headline):             {annual_savings:10.2f}")
+    print("-" * 60)
+    print(f"  Battery throughput: {bat['throughput_kwh']:,.0f} kWh/yr "
+          f"({bat['throughput_kwh'] / (2 * args.battery_cap):.0f} EFC); deg "
+          f"GBP {bat['degradation_cost']:,.0f}/yr (diagnostic)")
+    if np.isfinite(payback_years):
+        print(f"  Simple payback:     {payback_years:.1f} years")
+    else:
+        print("  Simple payback:     never")
+    print("=" * 60)
 
     # Lifetime NPV assessment (the headline viability metric). The initial outlay
     # is the whole system (or battery, per framing); each replacement is the
@@ -344,7 +405,7 @@ def main() -> None:
         om_cost_per_year=om_cost_per_year,
     )
     npv_result = compute_npv(annual_savings, econ)
-    print("LIFETIME NPV ASSESSMENT")
+    print("LIFETIME NPV — forced 10-yr replacement (conservative sensitivity)")
     print("-" * 56)
     print(f"  Discount rate (real): {args.discount_rate * 100:.1f}%")
     print(f"  Horizon:              {args.horizon_years} years")
@@ -486,7 +547,7 @@ def _report_degradation(
         else f"run-to-fade (replace only below SOH {args.soh_floor:.2f})"
     )
     print("\n" + "=" * 56)
-    print("FADE-ADJUSTED LIFETIME NPV")
+    print("LIFETIME NPV — run-to-fade (BASELINE)")
     print("=" * 56)
     print(f"  Policy:                  {policy}")
     print(f"  Replacement year(s):     "
