@@ -36,15 +36,16 @@ from src.degradation import (
     soc_exposure,
 )
 from src.economics import EconomicParams, compute_npv
+from src.locations import get_location, resolve_paths
 from src.model import solve_dispatch
-from src.tariffs import TariffRates, build_tariff
+from src.tariffs import build_tariff
 
 DATA_DIR = REPO_ROOT / "data"
 RESULTS_DIR = REPO_ROOT / "results"
 
-DEFAULT_PV = DATA_DIR / "Timeseries_55.829_-4.276_SA3_4kWp_crystSi_14_35deg_0deg_2023_2023.csv"
+# The PV and Agile files are selected per location (Spec 04); the demand profile
+# is shared across locations.
 DEFAULT_DEMAND = DATA_DIR / "demand_halfhourly_2025.csv"
-DEFAULT_AGILE = DATA_DIR / "agile-half-hour-actual-rates-01-01-2025_31-12-2025_SScot.csv"
 
 DT_HOURS = 0.5
 
@@ -259,10 +260,27 @@ def main() -> None:
                         help="Force each day to end at its initial SOC (self-contained days).")
     parser.add_argument("--plot-date", type=str, default=None, metavar="YYYY-MM-DD",
                         help="Date of the single-day dispatch plot (default: first July day).")
-    parser.add_argument("--pv-file", type=Path, default=DEFAULT_PV)
+    parser.add_argument("--location", type=str, default="glasgow",
+                        choices=("inverness", "glasgow", "manchester", "plymouth"),
+                        help="Study location (Spec 04). Selects the PV file, Agile CSV, and "
+                             "region-specific tariff rates. Default: glasgow (reproduces the "
+                             "current baseline). The demand profile is shared across locations.")
+    parser.add_argument("--pv-file", type=Path, default=None,
+                        help="Override the location's PVGIS PV file.")
     parser.add_argument("--demand-file", type=Path, default=DEFAULT_DEMAND)
-    parser.add_argument("--agile-file", type=Path, default=DEFAULT_AGILE)
+    parser.add_argument("--agile-file", type=Path, default=None,
+                        help="Override the location's Agile CSV.")
     args = parser.parse_args()
+
+    # Spec 04: resolve the location's data files and rates. Explicit --pv-file /
+    # --agile-file flags override the location defaults; the demand profile is
+    # shared across locations.
+    location = get_location(args.location)
+    loc_pv, loc_agile = resolve_paths(location, DATA_DIR)
+    if args.pv_file is None:
+        args.pv_file = loc_pv
+    if args.agile_file is None:
+        args.agile_file = loc_agile
 
     # Component capex from per-unit costs. The hybrid inverter is sized to match
     # the PV array. The battery cost is both the replacement cost and the basis
@@ -298,8 +316,9 @@ def main() -> None:
 
     # Spec 03: replace the default (Agile) price columns with the selected tariff.
     # For --tariff agile --export matched this reproduces the Agile CSV prices
-    # exactly, so the default behaviour is unchanged.
-    rates = TariffRates()
+    # exactly, so the default behaviour is unchanged. Spec 04: rates are the
+    # selected location's region-specific 2025 values.
+    rates = location.rates
     imp, exp = build_tariff(
         args.tariff, data.index, rates, agile_path=args.agile_file,
         export=args.export, seg_rate=args.seg_rate,
@@ -308,6 +327,7 @@ def main() -> None:
     data["export_price"] = exp.to_numpy()
 
     print(f"  {len(data):,} half-hourly periods ({len(data) // HALFHOURS_PER_DAY} days)")
+    print(f"  Location:     {location.label} ({location.region})")
     print(f"  PV total:     {data['pv_kw'].sum() * DT_HOURS:8.0f} kWh/yr")
     print(f"  Demand total: {data['demand_kw'].sum() * DT_HOURS:8.0f} kWh/yr")
     print(f"  Tariff:       {args.tariff} import / {args.export} export "

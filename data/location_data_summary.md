@@ -48,7 +48,7 @@ This file lists the location-specific data inputs required to compare NPV across
 - Agile tariff file:
   - agile-half-hour-actual-rates-01-01-2025_31-12-2025_NWEng.csv
 - PV generation file:
-  - Timeseries_53.479_-2.244_SA3_4kWp_crystSi_14_35deg_0deg_2023_2023.csv
+  - Timeseries_53.483_-2.242_SA3_4kWp_crystSi_14_35deg_0deg_2023_2023.csv
 
 ## Plymouth
 
