@@ -5,7 +5,7 @@ This file lists the location-specific data inputs required to compare NPV across
 ## Inverness
 
 - Flat tariff:
-  - Standing charge: 47.63 p/day
+  - Standing charge: 57.55 p/day
   - Unit rate: 26.42 p/kWh
   - SEG export rate: 13 p/kWh (national average)
 - Economy 7 tariff:
