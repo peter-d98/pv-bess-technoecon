@@ -82,9 +82,12 @@ def make_plot(out_path: Path) -> None:
     width = 0.8 / n_locs
 
     colors = ["#5D8DE5", "#FF9045", "#48A23C", "#E75959"]
+    annual_yields = {}
     for idx, path in enumerate(files):
         s = _load_p_series(path)
         monthly = _monthly_yield_kwh_per_kwp(s).reindex(range(1, 13), fill_value=np.nan)
+        annual_total = monthly.sum()
+        annual_yields[lat_to_name.get(path.name.split("_")[1], path.stem)] = annual_total
 
         # Derive a short label from the filename (latitude -> name if known).
         key = path.name.split("_")[1]
@@ -97,8 +100,54 @@ def make_plot(out_path: Path) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(month_labels, fontsize=12)
     ax.tick_params(axis="y", labelsize=12)
-    ax.legend(title="Location", fontsize=12, title_fontsize=13)
+    ax.legend(title="Location", fontsize=12, title_fontsize=13, loc='upper left')
     ax.grid(axis="y", alpha=0.3)
+    
+    # Add a summary table with annual yields
+    uk_average = 900.0
+
+    table_data = [
+    ["Plymouth",   f"{annual_yields['Plymouth']:.0f}"],
+    ["Manchester", f"{annual_yields['Manchester']:.0f}"],
+    ["Glasgow",    f"{annual_yields['Glasgow']:.0f}"],
+    ["Inverness",  f"{annual_yields['Inverness']:.0f}"],
+    ["UK average", f"{uk_average:.0f}"],
+]
+
+    table = ax.table(
+    cellText=table_data,
+    colLabels=["Location", "Annual yield\n(kWh/kWp)"],
+    cellLoc="left",
+    colLoc="center",
+    bbox=[0.79, 0.47, 0.20, 0.50],  # x, y, width, height
+)
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(13)
+
+    # Remove all borders first
+    for cell in table.get_celld().values():
+        cell.visible_edges = ""
+        cell.set_facecolor("white")
+    
+    # Add rules only to header row and UK average row
+    last_row = len(table_data)
+
+    # Style table
+    for (row, col), cell in table.get_celld().items():
+
+        if row == 0:  # header row
+            cell.visible_edges = "TB"
+            cell.set_linewidth(1.0)
+            cell.set_text_props(weight="bold")
+
+        elif row == 5:  # UK average row
+            cell.visible_edges = "TB"
+            cell.set_linewidth(1.0)
+            cell.set_text_props(weight='bold')
+
+    table.scale(1.0, 1.2)
+    
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=200)
