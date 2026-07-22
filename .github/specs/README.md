@@ -33,7 +33,7 @@ the dissertation.
 | Calendar life | 13.5 yr (12–15 range) | — |
 | End-of-life / replace threshold | 80% of nominal capacity | — |
 | Fade model | additive linear cycle + linear calendar | √t calendar; SOC-dependent calendar |
-| In-dispatch penalty | derived `capex / (N_EoL · 2 · Q_nom)` ≈ 3.3p/kWh at £4k/10kWh | 5p/kWh placeholder |
+| In-dispatch penalty | derived `capex / (N_EoL · 2 · Q_nom)` ≈ 7.42p/kWh at £8.9k/10kWh (6000 EFC) | 0p / 5.56p (8000 EFC) axis points |
 
 ## Degradation design (agreed: two-timescale)
 
@@ -68,7 +68,7 @@ the dissertation.
 | 2 | [Unified degradation + capacity-fade model](spec-02-degradation-capacity-fade.md) | Implemented (core); SOC-max tradeoff deferred | 1 |
 | 3 | [Tariff model layer (flat, E7, Agile, SEG export)](spec-03-tariff-model.md) | Implemented & accepted | — |
 | 4 | [Multi-location data ingestion (Inverness, Glasgow, Manchester, Plymouth)](spec-04-multi-location-data-ingestion.md) | Implemented & accepted | — |
-| 5 | Parameter-sweep harness + results schema | TODO | 1–4 |
+| 5 | [Parameter-sweep harness + results schema (+ controller axis)](spec-05-parameter-sweep-harness.md) | Implemented & accepted | 1–4 |
 | 6 | Analysis figures (NPV frontier, viability heatmaps, tornado) | TODO | 5 |
 
 Specs 3 and 4 are independent of each other. Specs 1 and 2 are coupled but kept

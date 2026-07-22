@@ -88,6 +88,12 @@ Hand-derivations for the non-obvious ones:
   sound, the realised_life = replacement_years[0]−1 / ceil-booking timing is
   internally consistent (no off-by-one). `compute_npv` override precedence,
   non-negativity validation, and discounted final-year crediting confirmed.
+- **2026-07-21 — Capex overhaul (record note, not a re-verification).** The 5.00 p/kWh
+  confirmed above reflects the then-current £600/kWh general-cost baseline and remains a
+  faithful record of that recomputation. The baseline has since moved to £890/kWh (battery
+  incl. inverter), which derives 7.42 p/kWh at 6000 EFC (and 5.56 p/kWh at 8000 EFC); the
+  `derive_throughput_penalty` logic itself is unchanged, so the oracle re-derivations above
+  still hold for their stated inputs.
   `src/model.py` and `src/battery.py` byte-identical (empty diff). 53/53 tests pass.
   Fade reset and decoupled soh_eol-vs-soh_floor threshold logic correct.
   Residual issues: none blocking. Notes: (i) add one sentence to the write-up on the
