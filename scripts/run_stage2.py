@@ -101,8 +101,12 @@ def solve_year(
         schedule.index = data.index[sl]
         daily_schedules.append(schedule)
 
-        # Carry the end-of-day SOC forward to the next day.
+        # Carry the end-of-day SOC forward to the next day. Clamp to the SOC
+        # window: the solver can return a value a hair outside [soc_min, soc_max]
+        # (feasibility tolerance), which is physically in-bounds but would trip
+        # the strict BatteryParams validator on the next day's replace().
         carried_soc = float(schedule["soc_end"].iloc[-1])
+        carried_soc = min(max(carried_soc, battery.soc_min), battery.soc_max)
 
     return pd.concat(daily_schedules)
 
@@ -181,25 +185,22 @@ def main() -> None:
     )
     parser.add_argument("--deg-cost", type=float, default=None, metavar="GBP_PER_KWH",
                         help="Throughput degradation cost (GBP/kWh cycled). Default: derived "
-                             "from capex / (cycle_life_efc * 2 * capacity) ≈ 0.05 (5 p/kWh at "
-                             "baseline). Pass a value to override.")
+                             "from capex / (cycle_life_efc * 2 * capacity) ≈ 0.074 (7.42 p/kWh "
+                             "at baseline). Pass a value to override.")
     parser.add_argument("--battery-cap", type=float, default=10.0, metavar="KWH",
                         help="Battery nominal capacity (kWh). Default: 10.0")
     parser.add_argument("--max-power", type=float, default=3.0, metavar="KW",
                         help="Max charge/discharge power (kW). Default: 3.0")
     parser.add_argument("--pv-kwp", type=float, default=4.0, metavar="KWP",
-                        help="PV array peak power (kWp). The hybrid inverter is sized to match "
-                             "this. Default: 4.0")
-    parser.add_argument("--pv-cost-per-kwp", type=float, default=1940.0, metavar="GBP_PER_KWP",
-                        help="Installed PV cost per kWp. Default: 1940")
-    parser.add_argument("--battery-cost-per-kwh", type=float, default=600.0,
+                        help="PV array peak power (kWp). Default: 4.0")
+    parser.add_argument("--pv-cost-per-kwp", type=float, default=1109.0, metavar="GBP_PER_KWP",
+                        help="Installed PV cost per kWp (complete PV system incl. its inverter). "
+                             "Default: 1109")
+    parser.add_argument("--battery-cost-per-kwh", type=float, default=890.0,
                         metavar="GBP_PER_KWH",
-                        help="Installed battery cost per kWh (also the replacement cost and the "
-                             "basis for the derived throughput penalty). Default: 600")
-    parser.add_argument("--inverter-cost-per-kw", type=float, default=400.0,
-                        metavar="GBP_PER_KW",
-                        help="Installed hybrid-inverter cost per kW (sized to the PV array). "
-                             "Default: 400")
+                        help="Installed battery cost per kWh, including the hybrid inverter (also "
+                             "the replacement cost and the basis for the derived throughput "
+                             "penalty). Default: 890")
     parser.add_argument("--pv-om-frac", type=float, default=0.01, metavar="FRAC",
                         help="Annual PV O&M as a fraction of PV capital cost (whole-system "
                              "framing only). Default: 0.01")
@@ -282,14 +283,13 @@ def main() -> None:
     if args.agile_file is None:
         args.agile_file = loc_agile
 
-    # Component capex from per-unit costs. The hybrid inverter is sized to match
-    # the PV array. The battery cost is both the replacement cost and the basis
-    # for the derived throughput penalty; the whole-system outlay adds PV and
-    # inverter on top.
+    # Component capex from per-unit costs. The battery cost includes the hybrid
+    # inverter (they share a life, so are not costed separately); it is both the
+    # replacement cost and the basis for the derived throughput penalty. The PV
+    # cost is a complete PV system (panels + its own inverter + install).
     pv_capex = args.pv_kwp * args.pv_cost_per_kwp
-    inverter_capex = args.pv_kwp * args.inverter_cost_per_kw
     args.battery_capex = args.battery_cap * args.battery_cost_per_kwh
-    args.system_capex = pv_capex + inverter_capex + args.battery_capex
+    args.system_capex = pv_capex + args.battery_capex
     # PV O&M is an incremental cost only in the whole-system framing; a
     # battery-marginal household already owns and maintains the PV, so the O&M
     # cancels against the counterfactual.
@@ -347,24 +347,26 @@ def main() -> None:
 
     # Framing selects the counterfactual and the initial capital outlay.
     #   whole-system: vs a household with no PV and no battery (all demand
-    #                 imported); initial outlay is the whole PV+inverter+battery.
+    #                 imported); initial outlay is the whole PV + battery
+    #                 (the battery cost already includes the inverter).
     #   battery-marginal: vs a household that already owns PV but no battery;
     #                 initial outlay is the battery only.
     # Framing selects the counterfactual and the initial capital outlay.
     #   whole-system: the HEADLINE counterfactual is a do-nothing household — no
     #                 PV, no battery, all demand imported on the standard FLAT
     #                 tariff (not the system's tariff). Initial outlay = whole
-    #                 system. A same-tariff grid-only cost is also reported as a
-    #                 decomposition (isolating PV-BESS value from tariff switch).
+    #                 system (PV + battery-incl-inverter). A same-tariff grid-only
+    #                 cost is also reported as a decomposition (isolating PV-BESS
+    #                 value from tariff switch).
     #   battery-marginal: vs a household that already owns PV (same tariff);
     #                 initial outlay is the battery only.
     if args.framing == "whole-system":
         cf = grid_only_flat_cost(data, rates.flat_rate)
         cf_same = grid_only_cost(data)
         initial_capex = args.system_capex
-        # The hybrid inverter is assumed to share the battery's 10-yr life, so
-        # the two are replaced together; PV persists for the horizon.
-        replacement_capex = args.battery_capex + inverter_capex
+        # The battery cost already includes the hybrid inverter (shared life), so
+        # a replacement renews the battery-plus-inverter unit; PV persists.
+        replacement_capex = args.battery_capex
     else:
         cf = counterfactual_cost(data)
         cf_same = None
@@ -383,7 +385,7 @@ def main() -> None:
           f"(mean import {data['import_price'].mean() * 100:.2f} p/kWh)")
     print(f"Framing: {args.framing}; deg cost {args.deg_cost * 100:.2f} p/kWh "
           f"({'derived' if deg_cost_is_derived else 'override'})")
-    print(f"Capex:   PV {pv_capex:,.0f} + inverter {inverter_capex:,.0f} + battery "
+    print(f"Capex:   PV {pv_capex:,.0f} + battery "
           f"{args.battery_capex:,.0f} = GBP {initial_capex:,.0f}")
     print("-" * 60)
     print(f"  Operating cost, PV+battery (GBP/yr):  {bat['net_cost']:10.2f}")
@@ -413,7 +415,7 @@ def main() -> None:
 
     # Lifetime NPV assessment (the headline viability metric). The initial outlay
     # is the whole system (or battery, per framing); each replacement is the
-    # battery + inverter (both 10-yr life; PV persists), applied via
+    # battery (which already includes the inverter; PV persists), applied via
     # replacement_cost_factor so economics.py is unchanged.
     econ = EconomicParams(
         battery_capex=initial_capex,
@@ -516,12 +518,12 @@ def _report_degradation(
     else:
         realised_life = args.horizon_years + 1  # survives the horizon; no replacement
 
-    # Credit the unconsumed *warranty* value of the battery+inverter in service
-    # at the horizon end (straight-line over the warranty life, discounted). The
-    # NPV books each replacement at t = k·ceil(realised_life); the unit running
-    # in the final year was installed at the latest such t (or t = 0 if never
-    # replaced). Depreciating over the warranty life (not the longer realised
-    # life) is the more conservative, more defensible book-value convention.
+    # Credit the unconsumed *warranty* value of the battery (incl. inverter) in
+    # service at the horizon end (straight-line over the warranty life,
+    # discounted). The NPV books each replacement at t = k·ceil(realised_life);
+    # the unit running in the final year was installed at the latest such t (or
+    # t = 0 if never replaced). Depreciating over the warranty life (not the
+    # longer realised life) is the more conservative, more defensible convention.
     horizon = args.horizon_years
     warranty = args.battery_life_years
     replacement_capex = econ.battery_capex * econ.replacement_cost_factor
