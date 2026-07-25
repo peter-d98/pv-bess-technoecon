@@ -18,10 +18,10 @@ Conventions (see ``.github/specs/spec-01-verification.md``):
 * The base saving in year ``t`` is escalated by ``(1 + esc) ** (t - 1)`` so that
   year 1 equals the supplied base saving.
 * Battery replacements (possibly several) are outflows at every
-  ``t_r = k * ceil(life) < N`` for ``k = 1, 2, ...``, each discounted to present
-  value. Escalation does not apply to capex.
+    ``t_r = k * ceil(life) < N`` for ``k = 1, 2, ...``, each discounted to present
+    value. Escalation does not apply to capex.
 * If enabled, a straight-line residual value credits the unconsumed life of the
-  battery still in service at the horizon, as an inflow at ``t = N``.
+    battery still in service at the horizon, as an inflow at ``t = N``.
 """
 
 from __future__ import annotations
@@ -96,13 +96,9 @@ def compute_npv(
         Economic assumptions.
     terminal_residual_value:
         Optional explicit residual value (real GBP, undiscounted) credited as an
-        inflow in the final horizon year. When supplied it **overrides** the
-        default straight-line-over-``battery_life_years`` residual credit; the
-        fade model uses it to credit the unconsumed *warranty* value of whatever
-        battery is in service at the horizon end, computed against the fade-
-        derived replacement schedule rather than a uniform life. Must be
+        inflow in the final horizon year. When supplied it overrides the default
+        straight-line residual calculated from ``battery_life_years``. Must be
         non-negative.
-
     Returns
     -------
     NPVResult
@@ -140,24 +136,18 @@ def compute_npv(
     if replacement_cost > 0:
         k = 1
         while k * life < n:
-            replacement_outflow[k * life - 1] = replacement_cost  # year index t = k*life
+            replacement_outflow[k * life - 1] = replacement_cost
             k += 1
 
-    # Residual value of the battery still in service at the horizon end. An
-    # explicit terminal_residual_value (e.g. warranty-based, from the fade
-    # schedule) takes precedence; otherwise fall back to the default
-    # straight-line-over-life credit assuming a uniform replacement schedule.
     residual_inflow = np.zeros(n)
     if terminal_residual_value is not None:
         residual_inflow[n - 1] = float(terminal_residual_value)
     elif econ.include_residual_value and replacement_cost >= 0:
-        # Battery in service during the final year was installed at t_install.
         m = math.ceil(n / life) - 1
         t_install = m * life
-        remaining = (t_install + life) - n  # years of unconsumed life
+        remaining = (t_install + life) - n
         if remaining > 0:
-            residual = replacement_cost * (remaining / life)
-            residual_inflow[n - 1] = residual
+            residual_inflow[n - 1] = replacement_cost * remaining / life
 
     benefit = operating_benefit + residual_inflow
     capex_flow = replacement_outflow

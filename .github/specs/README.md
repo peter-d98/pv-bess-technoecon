@@ -69,7 +69,8 @@ the dissertation.
 | 3 | [Tariff model layer (flat, E7, Agile, SEG export)](spec-03-tariff-model.md) | Implemented & accepted | — |
 | 4 | [Multi-location data ingestion (Inverness, Glasgow, Manchester, Plymouth)](spec-04-multi-location-data-ingestion.md) | Implemented & accepted | — |
 | 5 | [Parameter-sweep harness + results schema (+ controller axis)](spec-05-parameter-sweep-harness.md) | Implemented & accepted | 1–4 |
-| 6 | Analysis figures (NPV frontier, viability heatmaps, tornado) | TODO | 5 |
+| 6 | [Sweep & economic extensions](spec-06-sweep-economic-extensions.md) | In progress (increments 1–3 implemented) | 1–5 |
+| 7 | Analysis figures (NPV frontier, viability heatmaps, tornado, peak loads) | TODO | 6 |
 
 Specs 3 and 4 are independent of each other. Specs 1 and 2 are coupled but kept
 separate so each stays small and independently testable.

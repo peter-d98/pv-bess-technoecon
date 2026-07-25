@@ -141,3 +141,13 @@ def resolve_paths(spec: LocationSpec, data_dir: str | Path) -> tuple[Path, Path]
     """Return the ``(pv_path, agile_path)`` for *spec* under *data_dir*."""
     data_dir = Path(data_dir)
     return data_dir / spec.pv_file, data_dir / spec.agile_file
+
+
+def resolve_pv_size_path(
+    spec: LocationSpec, data_dir: str | Path, pv_kwp: float
+) -> Path:
+    """Return the exact downloaded PV profile for a location and array size."""
+    if pv_kwp <= 0 or not float(pv_kwp).is_integer():
+        raise ValueError("pv_kwp must be a positive whole-number profile size.")
+    filename = f"{spec.label}_{int(pv_kwp)}kWp_2023.csv"
+    return Path(data_dir) / filename

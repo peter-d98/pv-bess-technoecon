@@ -17,7 +17,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.locations import LOCATIONS, get_location, resolve_paths
+from src.locations import LOCATIONS, get_location, resolve_paths, resolve_pv_size_path
+from src.data_loader import build_canonical_index, load_pv
 from src.tariffs import TariffRates
 
 DATA_DIR = REPO_ROOT / "data"
@@ -118,3 +119,28 @@ def test_l11_unknown_location_raises():
 def test_l12_glasgow_equals_default_rates():
     """L12: Glasgow's rates equal the TariffRates() default (baseline guard)."""
     assert get_location("glasgow").rates == TariffRates()
+
+
+def test_spec06_selected_pv_size_profiles_exist():
+    for location in ("inverness", "manchester", "plymouth"):
+        spec = get_location(location)
+        for pv_kwp in (2.0, 4.0, 5.0, 6.0):
+            path = resolve_pv_size_path(spec, DATA_DIR, pv_kwp)
+            assert path.name == f"{spec.label}_{int(pv_kwp)}kWp_2023.csv"
+            assert path.exists(), f"missing profile: {path}"
+
+
+def test_spec06_pv_size_profile_rejects_fractional_size():
+    with pytest.raises(ValueError):
+        resolve_pv_size_path(get_location("glasgow"), DATA_DIR, 2.5)
+
+
+def test_spec06_selected_pv_yield_increases_with_size():
+    index = build_canonical_index(2025)
+    for location in ("inverness", "manchester", "plymouth"):
+        spec = get_location(location)
+        yields = [
+            load_pv(resolve_pv_size_path(spec, DATA_DIR, pv_kwp), index).sum()
+            for pv_kwp in (2.0, 4.0, 5.0, 6.0)
+        ]
+        assert all(lower < upper for lower, upper in zip(yields, yields[1:]))

@@ -155,25 +155,75 @@ def test_o9_residual_value_only():
     assert result.npv == pytest.approx(-666.67, abs=0.01)
 
 
-def test_terminal_residual_override():
+def test_terminal_residual_negative_rejected():
+    econ = EconomicParams(battery_capex=1000.0, horizon_years=20)
+    with pytest.raises(ValueError):
+        compute_npv(0.0, econ, terminal_residual_value=-1.0)
+
+
+def test_spec06_e1_full_replacement_with_life_based_residual():
     econ = EconomicParams(
         battery_capex=1000.0,
         discount_rate=0.0,
         horizon_years=20,
         price_escalation=0.0,
-        battery_life_years=30.0,
-        include_residual_value=True,
+        battery_life_years=12.0,
     )
-    # Explicit override replaces the default straight-line residual (333.33):
-    # NPV = -1000 initial + 300 residual (undiscounted at r=0) = -700.
-    result = compute_npv(0.0, econ, terminal_residual_value=300.0)
-    assert result.npv == pytest.approx(-700.0, abs=1e-6)
+    result = compute_npv(0.0, econ)
+
+    assert result.cashflows.loc[result.cashflows["year"] == 12, "capex"].item() == 1000.0
+    assert result.cashflows.loc[result.cashflows["year"] == 20, "benefit"].item() == pytest.approx(1000.0 * 4.0 / 12.0)
+    assert result.pv_costs == pytest.approx(2000.0)
+    assert result.npv == pytest.approx(-1000.0 - 1000.0 + 1000.0 * 4.0 / 12.0)
 
 
-def test_terminal_residual_negative_rejected():
-    econ = EconomicParams(battery_capex=1000.0, horizon_years=20)
-    with pytest.raises(ValueError):
-        compute_npv(0.0, econ, terminal_residual_value=-1.0)
+def test_spec06_e2_full_replacements_with_final_residual():
+    econ = EconomicParams(
+        battery_capex=1000.0,
+        discount_rate=0.0,
+        horizon_years=20,
+        price_escalation=0.0,
+        battery_life_years=6.0,
+    )
+    result = compute_npv(0.0, econ)
+
+    capex_by_year = result.cashflows.set_index("year")["capex"]
+    assert capex_by_year[6] == pytest.approx(1000.0)
+    assert capex_by_year[12] == pytest.approx(1000.0)
+    assert capex_by_year[18] == pytest.approx(1000.0)
+    assert result.cashflows.loc[result.cashflows["year"] == 20, "benefit"].item() == pytest.approx(1000.0 * 4.0 / 6.0)
+    assert result.pv_costs == pytest.approx(4000.0)
+    assert result.npv == pytest.approx(-4000.0 + 1000.0 * 4.0 / 6.0)
+
+
+def test_spec06_e3_discounts_full_replacement_and_terminal_residual():
+    econ = EconomicParams(
+        battery_capex=1000.0,
+        discount_rate=0.05,
+        horizon_years=20,
+        price_escalation=0.0,
+        battery_life_years=12.0,
+    )
+    result = compute_npv(0.0, econ)
+
+    expected_pv_costs = 1000.0 + 1000.0 / (1.05 ** 12)
+    expected_pv_residual = (1000.0 * 4.0 / 12.0) / (1.05 ** 20)
+    assert result.pv_costs == pytest.approx(expected_pv_costs)
+    assert result.npv == pytest.approx(-expected_pv_costs + expected_pv_residual)
+
+
+def test_spec06_realised_15_year_life_credits_ten_unused_years():
+    econ = EconomicParams(
+        battery_capex=1000.0,
+        discount_rate=0.0,
+        horizon_years=20,
+        price_escalation=0.0,
+        battery_life_years=15.0,
+    )
+    result = compute_npv(0.0, econ)
+
+    assert result.cashflows.loc[result.cashflows["year"] == 15, "capex"].item() == 1000.0
+    assert result.cashflows.loc[result.cashflows["year"] == 20, "benefit"].item() == pytest.approx(1000.0 * 10.0 / 15.0)
 
 
 def test_cashflows_sum_to_npv():

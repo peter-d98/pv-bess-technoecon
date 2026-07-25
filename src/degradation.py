@@ -275,7 +275,10 @@ def simulate_capacity_fade(
 
         soh_trajectory.append(soh)
         capacity_year = capacity_kwh_nominal * soh
-        saving, throughput_kwh, soc_series = dispatch_year(capacity_year, soc_max)
+        # Dispatch closures may return a fourth element (retained peak data);
+        # the fade simulation only needs the first three.
+        dispatched = dispatch_year(capacity_year, soc_max)
+        saving, throughput_kwh, soc_series = dispatched[0], dispatched[1], dispatched[2]
 
         efc_year = equivalent_full_cycles(throughput_kwh, capacity_kwh_nominal)
         saving_stream.append(float(saving))

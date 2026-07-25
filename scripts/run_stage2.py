@@ -51,7 +51,10 @@ DT_HOURS = 0.5
 
 
 def solve_year(
-    data: pd.DataFrame, battery: BatteryParams, terminal_soc_daily: bool
+    data: pd.DataFrame,
+    battery: BatteryParams,
+    terminal_soc_daily: bool,
+    solver: str | None = "SCIPY",
 ) -> pd.DataFrame:
     """Solve the dispatch problem day-by-day across the whole year.
 
@@ -89,6 +92,7 @@ def solve_year(
             battery=day_battery,
             dt_hours=DT_HOURS,
             terminal_soc_equals_initial=terminal_soc_daily,
+            solver=solver,
         )
 
         if result.status not in ("optimal", "optimal_inaccurate"):
@@ -259,6 +263,8 @@ def main() -> None:
                              "positionally).")
     parser.add_argument("--terminal-soc-daily", action="store_true",
                         help="Force each day to end at its initial SOC (self-contained days).")
+    parser.add_argument("--solver", type=str, default="SCIPY",
+                        help="CVXPY solver used for dispatch solves (default: SCIPY/HiGHS).")
     parser.add_argument("--plot-date", type=str, default=None, metavar="YYYY-MM-DD",
                         help="Date of the single-day dispatch plot (default: first July day).")
     parser.add_argument("--location", type=str, default="glasgow",
@@ -341,7 +347,12 @@ def main() -> None:
     )
 
     print("\nSolving annual rolling-horizon dispatch (day-by-day)...")
-    schedule = solve_year(data, battery, terminal_soc_daily=args.terminal_soc_daily)
+    schedule = solve_year(
+        data,
+        battery,
+        terminal_soc_daily=args.terminal_soc_daily,
+        solver=args.solver,
+    )
 
     bat = battery_annual_costs(schedule, battery)
 
@@ -495,7 +506,12 @@ def _report_degradation(
 
     def dispatch_year(capacity_kwh: float, soc_max: float):
         aged = replace(battery, capacity_kwh=capacity_kwh, soc_max=soc_max)
-        sched = solve_year(data, aged, terminal_soc_daily=args.terminal_soc_daily)
+        sched = solve_year(
+            data,
+            aged,
+            terminal_soc_daily=args.terminal_soc_daily,
+            solver=args.solver,
+        )
         costs = battery_annual_costs(sched, aged)
         # Q9: degradation not subtracted; wear is priced via replacement capex.
         saving = cf["net_cost"] - costs["net_cost"]
@@ -518,27 +534,24 @@ def _report_degradation(
     else:
         realised_life = args.horizon_years + 1  # survives the horizon; no replacement
 
-    # Credit the unconsumed *warranty* value of the battery (incl. inverter) in
-    # service at the horizon end (straight-line over the warranty life,
-    # discounted). The NPV books each replacement at t = k·ceil(realised_life);
-    # the unit running in the final year was installed at the latest such t (or
-    # t = 0 if never replaced). Depreciating over the warranty life (not the
-    # longer realised life) is the more conservative, more defensible convention.
+    # Pay each replacement in full, then credit the unused fraction of the
+    # replacement battery at the horizon using its predecessor's realised life.
+    # If no replacement occurs, the original faded battery has no residual.
     horizon = args.horizon_years
-    warranty = args.battery_life_years
     replacement_capex = econ.battery_capex * econ.replacement_cost_factor
+    terminal_residual = 0.0
+    residual_age = None
     if fade.replacement_years and realised_life < horizon:
-        k_last = (horizon - 1) // realised_life          # largest k with k·life < horizon
-        install_t = k_last * realised_life
-    else:
-        install_t = 0
-    age_at_horizon = horizon - install_t
-    remaining_frac = max(0.0, (warranty - age_at_horizon) / warranty)
-    terminal_residual = replacement_capex * remaining_frac
+        install_t = ((horizon - 1) // realised_life) * realised_life
+        residual_age = horizon - install_t
+        remaining_years = max(0, realised_life - residual_age)
+        terminal_residual = replacement_capex * remaining_years / realised_life
 
     econ_fade = replace(econ, battery_life_years=realised_life)
     npv_fade = compute_npv(
-        fade.saving_stream, econ_fade, terminal_residual_value=terminal_residual
+        fade.saving_stream,
+        econ_fade,
+        terminal_residual_value=terminal_residual,
     )
 
     # Persist the full fade trajectory for inspection / the dissertation. The
@@ -583,8 +596,11 @@ def _report_degradation(
           f"(deepest fade before any replacement)")
     print(f"  Year-1 saving (GBP):     {fade.saving_stream[0]:,.2f}")
     print(f"  Min annual saving (GBP): {min_saving:,.2f}  (at deepest fade)")
-    print(f"  Terminal residual (GBP): {terminal_residual:,.2f}  (unused warranty "
-          f"value at yr {horizon}, age {age_at_horizon} of {warranty:.0f})")
+    if residual_age is None:
+        print("  Terminal residual (GBP): 0.00  (no replacement within horizon)")
+    else:
+        print(f"  Terminal residual (GBP): {terminal_residual:,.2f}  "
+              f"(replacement age {residual_age} of realised {realised_life} yr life)")
     print(f"  Fade trajectory saved:   {fade_csv}")
     print("-" * 56)
     print(f"  PV of benefits (GBP)     {npv_fade.pv_benefits:11.2f}")
