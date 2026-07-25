@@ -47,35 +47,37 @@ class SweepGrid:
     cost, ``0.0`` = ignore wear in dispatch) and ``cycle_life_efc`` is the
     end-of-life equivalent-full-cycle count driving capacity fade / replacement.
 
-    Defaults (grounded in the £890/kWh battery incl. inverter):
-      * ``(0.0, 6000)``   — wear ignored in dispatch, but the pack still fades at
-        6000 EFC (isolates the *value* of degradation-aware dispatch vs the next);
-      * ``(None, 6000)``  — 7.42 p/kWh, internally consistent **pessimistic** case
-        (the baseline);
-      * ``(None, 8000)``  — 5.56 p/kWh, internally consistent **optimistic** case.
+    Defaults are the Spec-06 v2 expanded grid: six MILP throughput penalties
+    (0, 1, 3, 5, 7, 9 p/kWh) all paired with 6000 EFC, so the dispatch-price
+    sensitivity is isolated from the fade assumption. ``0.0`` means wear is
+    ignored in dispatch while the pack still fades, which isolates the *value*
+    of degradation-aware dispatch.
     """
 
     locations: tuple[str, ...] = ("inverness", "manchester", "plymouth")
     tariffs: tuple[str, ...] = ("flat", "e7", "agile")
-    pv_sizes_kwp: tuple[float, ...] = (2.0, 4.0, 5.0, 6.0)
-    sizes_kwh: tuple[float, ...] = (0.0, 2.5, 5.0, 10.0)
+    pv_sizes_kwp: tuple[float, ...] = (1.0, 2.0, 3.0, 4.0, 5.0, 6.0)
+    sizes_kwh: tuple[float, ...] = (0.0, 0.5, 1.0, 2.5, 5.0, 10.0)
     deg_scenarios: tuple[tuple[float | None, float], ...] = (
         (0.0, 6000.0),
         (0.01, 6000.0),
         (0.03, 6000.0),
         (0.05, 6000.0),
         (0.07, 6000.0),
+        (0.09, 6000.0),
     )
     controllers: tuple[str, ...] = ("milp", "self_consumption", "self_consumption_tou")
     c_rate: float = 0.5
     export: str = "matched"
-    n_knots: int = 9
+    n_knots: int = 11
     # Lowest state of health each curve is solved down to, as a fraction of
     # nominal capacity. The no-replacement policy runs one battery for the whole
     # horizon and so queries well below the 0.60 replacement floor; solving to
     # this depth keeps every queried capacity inside the knot range instead of
-    # flat-extrapolating below the lowest solved point (Spec 06 §4.5).
-    min_soh_coverage: float = 0.15
+    # flat-extrapolating below the lowest solved point (Spec 06 §4.5). The small
+    # packs cycle hardest (a 1 kWh pack reached 641 EFC/yr at zero penalty),
+    # so the floor sits well below their projected 20-year SOH.
+    min_soh_coverage: float = 0.08
     lifetime_policies: tuple[str, ...] = ("run-to-fade", "no-replacement")
 
 

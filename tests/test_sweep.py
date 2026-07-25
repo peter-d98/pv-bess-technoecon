@@ -124,19 +124,19 @@ def _deg():
 
 
 def test_s1_default_grid_cardinality():
-    """Spec 06 A3: 36 reference rows + 2 lifetime policies x (540 MILP + 216 rules)."""
+    """Spec 06 A3: 54 reference rows + 2 lifetime policies x (1620 MILP + 540 rules)."""
     df = run_sweep(SweepGrid(), StubProvider(), _econ(), _deg()).scenarios
-    assert len(df) == 1548
-    assert (df["controller"] == "none").sum() == 36
-    assert (df["controller"] == "milp").sum() == 1080
+    assert len(df) == 4374
+    assert (df["controller"] == "none").sum() == 54
+    assert (df["controller"] == "milp").sum() == 3240
     rules = df["controller"].isin(RULES_CONTROLLERS)
-    assert rules.sum() == 432
-    assert (df["policy"] == "run-to-fade").sum() == 756
-    assert (df["policy"] == "no-replacement").sum() == 756
+    assert rules.sum() == 1080
+    assert (df["policy"] == "run-to-fade").sum() == 2160
+    assert (df["policy"] == "no-replacement").sum() == 2160
 
 
 def test_s10_degradation_axis_mapping():
-    """The five Spec 06 MILP penalties all use 6000 EFC fade."""
+    """The six Spec 06 MILP penalties all use 6000 EFC fade."""
     df = run_sweep(SweepGrid(), StubProvider(), _econ(), _deg()).scenarios
     milp = df[df["controller"] == "milp"]
     pairs = set(
@@ -148,6 +148,7 @@ def test_s10_degradation_axis_mapping():
         (0.03, 6000.0),
         (0.05, 6000.0),
         (0.07, 6000.0),
+        (0.09, 6000.0),
     }
     # Rules rows carry no penalty but still fade at the baseline EFC.
     rules = df[df["controller"].isin(("self_consumption", "self_consumption_tou"))]

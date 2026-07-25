@@ -17,9 +17,9 @@ remain reproducible.
 
 ### In scope
 - Full replacement outflows plus a realised-life terminal residual credit (§4.1).
-- Battery sizes `0, 2.5, 5, 10` kWh.
-- PV sizes `2, 4, 5, 6` kWp, loaded from the existing location-and-size PV files.
-- MILP throughput penalties `0, 1, 3, 5, 7` p/kWh; every point uses 6000 EFC for
+- Battery sizes `0, 0.5, 1, 2.5, 5, 10` kWh.
+- PV sizes `1, 2, 3, 4, 5, 6` kWp, loaded from the existing location-and-size PV files.
+- MILP throughput penalties `0, 1, 3, 5, 7, 9` p/kWh; every point uses 6000 EFC for
   cyclic capacity fade so the dispatch-price sensitivity is isolated.
 - Nameplate charge/discharge power fixed at **0.5C** for each nominal battery size and
   held constant as its energy capacity fades (§4.4).
@@ -45,9 +45,9 @@ remain reproducible.
 |---|---|---|
 | Location | **Inverness, Manchester, Plymouth** | Glasgow omitted: prior results are similar to Manchester |
 | Tariff | flat, E7, Agile | matched export, as Spec 05 |
-| PV size | **2, 4, 5, 6 kWp** | select the matching on-disk profile |
-| Battery size | **0, 2.5, 5, 10 kWh** | 0 = PV-only reference |
-| MILP penalty | **0, 1, 3, 5, 7 p/kWh** | all paired with 6000 EFC fade |
+| PV size | **1, 2, 3, 4, 5, 6 kWp** | select the matching on-disk profile |
+| Battery size | **0, 0.5, 1, 2.5, 5, 10 kWh** | 0 = PV-only reference |
+| MILP penalty | **0, 1, 3, 5, 7, 9 p/kWh** | all paired with 6000 EFC fade |
 | Controller | MILP, self-consumption, self-consumption-ToU | rules remain penalty-free |
 | Lifetime policy | run-to-fade-and-replace; no replacement | no-replacement retains the original battery for 20 years |
 
@@ -164,10 +164,13 @@ not cover that range accurately. The implementation must determine the required 
 conservatively, include the fresh-battery point exactly, and demonstrate convergence for
 both policies. It must not use flat extrapolation below the lowest solved knot.
 
-Implemented as `SweepGrid.min_soh_coverage` (0.15): every curve's lowest knot is
-`0.15 * Q_nom * SOC-window` and its highest is the exact fresh-battery point. Each
+Implemented as `SweepGrid.min_soh_coverage` (0.08): every curve's lowest knot is
+`0.08 * Q_nom * SOC-window` and its highest is the exact fresh-battery point. Each
 policy's realised minimum SOH is checked against that floor and the scenario fails if it
-falls below, so the clamped lookup can never act as flat extrapolation.
+falls below, so the clamped lookup can never act as flat extrapolation. The floor was
+lowered from 0.15 when the expanded grid added sub-kWh packs: a 1 kWh pack at zero
+penalty (Plymouth, 6 kWp, Agile) cycles at 641 EFC/yr, whose conservative 19-year
+projection is `1 - 0.380 - 0.406 = 0.214` SOH.
 
 The existing linear fade law can eventually produce zero or negative SOH because it was
 originally coupled to replacement. If any v2 no-replacement trajectory reaches
@@ -210,33 +213,31 @@ charging and can differ from actual grid import. It is also not unserved load.
 
 ### 4.7 Experiment size, runtime, and staging
 
-There are `3 * 3 * 4 = 36` location × tariff × PV cells. Each contains one PV-only row,
-3 positive battery sizes × 5 MILP penalties, and 3 sizes × 2 rules controllers. With two
+There are `3 * 3 * 6 = 54` location × tariff × PV cells. Each contains one PV-only row,
+5 positive battery sizes × 6 MILP penalties, and 5 sizes × 2 rules controllers. With two
 lifetime-policy readouts for every battery row, the final long table contains:
 
 ```
-36 * (1 + 2 * (3*5 + 3*2)) = 1548 rows
+54 * (1 + 2 * (5*6 + 5*2)) = 4374 rows
 ```
 
 PV size, penalty, and nominal battery size/power require distinct MILP curves:
 
 ```
-3 locations * 3 tariffs * 4 PV sizes * 5 penalties * 3 battery sizes = 540 curves
-540 curves * 9 knots = 4860 annual MILP solves
+3 locations * 3 tariffs * 6 PV sizes * 6 penalties * 5 battery sizes = 1620 curves
+1620 curves * 11 knots = 17820 annual MILP solves
 ```
 
-Using the measured Spec-05 rate (324 annual solves in about 1.4 hours on four workers),
-the nine-knot estimate is about 84 serial compute-hours, 21 hours on one comparable
-four-worker machine, or 3.5 ideal hours across six such machines. Allowing for imbalance,
-I/O, setup, and any low-SOH refinement needed by the no-replacement policy, budget
-**4–6 hours across six comparable machines**. Rules curves add simulations but not MILP
-solves and are expected to be cheap.
+Rules controllers add `54 * 5 * 2 = 540` curves but no MILP solves. At the measured
+~65 s per annual solve this is about **322 serial compute-hours**. The experiment is
+staged as **324 MILP jobs** of `location × tariff × PV × penalty` (55 solves, ~1 h each)
+plus 54 cheap rules jobs of `location × tariff × PV`.
 
-The 12 independent `location × PV-size` partitions each contain 405 MILP solves at nine
-knots. Assign two partitions to each of six machines, mixing locations/tariffs where
-possible to reduce load imbalance. Each machine writes to a separate staging directory;
-the main machine validates and merges caches, then assembles the CSV with zero solves.
-Warm starts are optional; correctness must not depend on them.
+324 divides exactly into **27 MILP jobs per machine across 12 machines**. Running 12
+concurrent workers on a 14-core machine gives `27 * 55 * 65 s / 12 ≈ 2.2 h` ideal;
+budget **3-4 hours** for imbalance, I/O, and setup. Each machine writes to its own
+working copy of the cache; final assembly merges every curve into one **flat**
+directory and rebuilds the table with zero solves.
 
 ## 5. Outputs and preservation
 
@@ -286,7 +287,7 @@ must validate uniqueness of the scenario key before writing the combined CSV.
    familiar smoke cell: Agile, PV sizes 2/4/6, battery sizes 0/2.5/5/10, penalties
    0/5/7 p/kWh, MILP first, five knots for plumbing and nine for one convergence cell.
    Inspect schema, uniqueness, policy results, cache isolation, and peak retention.
-7. **Full experiment:** partition the 12 location × PV cells across six machines, assemble
+7. **Full experiment:** partition the 324 MILP jobs across 12 machines (27 each), assemble
    once, and independently
    verify cardinality and sampled cells.
 
@@ -310,19 +311,28 @@ peak reduction was **negative for 10 kWh packs (down to -3.6 kW)** because 5 kW
 Agile grid-charging stacks on top of household demand. Both previous sweep CSVs were
 confirmed byte-identical by sha256 after the run.
 
+**Grid expansion (2026-07-25):** because 2.5 kWh was both the best-performing and the
+*smallest* size tested, the optimum was on the grid boundary. With 12 machines of 14
+cores available, the axes were widened to PV `1-6` kWp, battery `0, 0.5, 1, 2.5, 5, 10`
+kWh and penalties `0-9` p/kWh, at 11 knots and a 0.08 SOH floor. A worst-case cycling
+probe (Plymouth / 6 kWp / Agile / zero penalty) confirmed both new extremes solve without
+validation error: the 1 kWh pack reached 641 EFC/yr with no-replacement min SOH 0.324,
+and a 15 kWh probe raised peak import from 5.14 to 10.30 kW. 15 kWh was subsequently
+dropped to keep the battery axis at six points.
+
 ## 7. MUST acceptance criteria
 
 - **A1:** E1–E4 match the hand-derived full replacement and residual cash-flow oracles.
 - **A2:** Fade callers compute terminal residual from realised predecessor life and the
   latest replacement installation time, not warranty life; no-replacement receives zero.
-- **A3:** The full grid has exactly 1548 unique scenario-policy rows under the confirmed
+- **A3:** The full grid has exactly 4374 unique scenario-policy rows under the confirmed
   axes.
 - **A4:** Every PV scenario loads the matching location-and-size profile and uses matching
   PV capex; no 4 kWp profile is silently reused for another size.
 - **A5:** Cache identity includes v2 namespace, location, tariff, PV size, nominal battery
   size, controller, penalty, and resolved 0.5C power. Cache-hit tests prove that different
   PV sizes and battery sizes cannot collide.
-- **A6:** MILP rows contain exactly the five confirmed `(penalty, 6000 EFC)` pairs; rules
+- **A6:** MILP rows contain exactly the six confirmed `(penalty, 6000 EFC)` pairs; rules
   rows remain penalty-free at 6000 EFC.
 - **A7:** Power equals 0.5C for every nominal size and remains fixed as capacity fades.
 - **A8:** Both lifetime policies reuse the same dispatch curves; no-replacement performs
@@ -338,7 +348,7 @@ confirmed byte-identical by sha256 after the run.
 ## 8. Independent verification gate
 
 Before acceptance, an independent reviewer must:
-- recompute E1–E4, the 1548-row cardinality, and 540-curve count without being shown
+- recompute E1–E4, the 4374-row cardinality, and 1620-curve count without being shown
   expected answers;
 - inspect one profile per location and at least two PV sizes for correct file selection;
 - prove cache separation for two PV sizes and two nominal battery sizes;
@@ -351,9 +361,11 @@ Before acceptance, an independent reviewer must:
 
 ## 9. Open decisions
 
-- **Resolved (2026-07-25):** nine knots is the final count. The coarse convergence cell
-  gave a -0.34% surrogate-vs-full NPV gap at nine knots against -1.16% at five, over a
-  knot range of 0.15 SOH to the exact fresh-battery point.
+- **Resolved (2026-07-25):** eleven knots is the final count. The coarse convergence cell
+  gave a -0.34% surrogate-vs-full NPV gap at nine knots against -1.16% at five, so nine
+  already met the 1% bar; eleven was adopted because the expanded grid widened the knot
+  range to a 0.08 SOH floor, and the extra knots preserve interpolation accuracy over
+  that wider range.
 - **Partly resolved (2026-07-25):** every coarse no-replacement trajectory stayed at
   positive SOH (minimum 0.339), so the additive fade law needs no lower bound for
   Glasgow/Agile. The harness fails loudly rather than clipping, so the full experiment
@@ -376,3 +388,9 @@ Before acceptance, an independent reviewer must:
   including below 0.60 SOH; it does not switch to PV-only operation (2026-07-24).
 - Peak analysis is deferred, but compact summaries, 2/3/5/7-kW counts, and top 50 events
   are retained during expensive v2 dispatch runs (2026-07-24).
+- Grid expanded to 6 PV sizes, 6 battery sizes (0.5 kWh added, 15 kWh rejected to keep
+  the axis at six points) and 6 penalties, at 11 knots and a 0.08 SOH coverage floor.
+  Peak thresholds stay at 2/3/5/7 kW. Staged as 324 MILP jobs, 27 per machine across 12
+  machines (2026-07-25).
+- MILP solver pinned to `SCIPY` (HiGHS) via a `--solver` flag on both runners, and
+  `requirements-lock.txt` added, so all 12 machines solve identically (2026-07-25).
