@@ -3,9 +3,17 @@ param(
     [ValidateRange(0, 11)]
     [int]$MachineIndex,
 
+    # Each MILP job runs 55 full-year MILP solves (~1h) and is memory-heavy;
+    # 12-14 concurrent was sized for CPU cores, not RAM. Confirm a safe value
+    # for this machine (see README/chat notes) before raising it.
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 14)]
-    [int]$MaxProc = 12
+    [int]$MaxProc = 4,
+
+    # Delay between launching successive jobs, to avoid every worker's
+    # numpy/scipy/cvxpy import and problem-build spiking memory at once.
+    [Parameter(Mandatory = $false)]
+    [int]$LaunchDelaySec = 5
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,6 +67,7 @@ Write-Host "total jobs $($all.Count); this machine $($mine.Count)" -ForegroundCo
 
 $running = @()
 $launched = 0
+$failed = @()
 
 foreach ($j in $mine) {
     while (@($running | Where-Object { -not $_.HasExited }).Count -ge $MaxProc) {
@@ -91,14 +100,32 @@ foreach ($j in $mine) {
         "--peak-out", (Join-Path $PartsDir "peaks_${tag}.csv")
     ) + $ctrl
 
-    $proc = Start-Process -FilePath $PY -ArgumentList $argList `
-        -RedirectStandardOutput (Join-Path $LogsDir "${tag}.out.txt") `
-        -RedirectStandardError (Join-Path $LogsDir "${tag}.err.txt") `
-        -WindowStyle Hidden -PassThru
+    $proc = $null
+    $attempt = 0
+    while (-not $proc -and $attempt -lt 3) {
+        $attempt += 1
+        try {
+            $proc = Start-Process -FilePath $PY -ArgumentList $argList `
+                -RedirectStandardOutput (Join-Path $LogsDir "${tag}.out.txt") `
+                -RedirectStandardError (Join-Path $LogsDir "${tag}.err.txt") `
+                -WindowStyle Hidden -PassThru
+        }
+        catch {
+            Write-Host "launch failed for ${tag} (attempt ${attempt}/3): $($_.Exception.Message)" -ForegroundColor Red
+            if ($attempt -lt 3) { Start-Sleep -Seconds 30 }
+        }
+    }
+
+    if (-not $proc) {
+        Write-Host "SKIPPING ${tag} after 3 failed launch attempts" -ForegroundColor Red
+        $failed += $tag
+        continue
+    }
 
     $running += $proc
     $launched += 1
     Write-Host ("launched {0}/{1}: {2} (pid {3})" -f $launched, $mine.Count, $tag, $proc.Id)
+    Start-Sleep -Seconds $LaunchDelaySec
 }
 
 Write-Host "All jobs launched. Waiting for completion..." -ForegroundColor Yellow
@@ -108,9 +135,16 @@ $errs = Get-ChildItem $LogsDir -Filter "*.err.txt" | Where-Object { $_.Length -g
 $curveCount = (Get-ChildItem $CacheDir -Filter "*.pkl" -ErrorAction SilentlyContinue).Count
 
 Write-Host "DONE $Machine - curves: $curveCount" -ForegroundColor Green
+if ($failed.Count -gt 0) {
+    Write-Host "Jobs that never launched:" -ForegroundColor Red
+    $failed | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+}
 if ($errs.Count -gt 0) {
     Write-Host "Non-empty error logs detected:" -ForegroundColor Red
     $errs | ForEach-Object { Write-Host "  $($_.Name)" -ForegroundColor Red }
+    exit 1
+}
+if ($failed.Count -gt 0) {
     exit 1
 }
 
