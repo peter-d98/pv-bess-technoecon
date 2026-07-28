@@ -131,8 +131,8 @@ foreach ($j in $mine) {
 Write-Host "All jobs launched. Waiting for completion..." -ForegroundColor Yellow
 $running | ForEach-Object { $_.WaitForExit() }
 
-$errs = Get-ChildItem $LogsDir -Filter "*.err.txt" | Where-Object { $_.Length -gt 0 }
-$curveCount = (Get-ChildItem $CacheDir -Filter "*.pkl" -ErrorAction SilentlyContinue).Count
+$errs = @(Get-ChildItem $LogsDir -Filter "*.err.txt" | Where-Object { $_.Length -gt 0 })
+$curveCount = @(Get-ChildItem $CacheDir -Filter "*.pkl" -ErrorAction SilentlyContinue).Count
 
 Write-Host "DONE $Machine - curves: $curveCount" -ForegroundColor Green
 if ($failed.Count -gt 0) {
