@@ -42,10 +42,16 @@ sensitivity axis.
 |---|---|---|
 | Discount rate (real) | 5% | 3.5% (HMT Green Book), 7% |
 | Analysis horizon | 20 yr (PV life) | — |
-| Battery replacement | run-to-fade base case (replace only if SOH hits a floor); forced replacement at end-of-life as a sensitivity | — |
+| Battery replacement | two policies reported side by side: run-to-fade-and-replace at the SOH floor, and no-replacement (one pack for the full horizon) | — |
 | Electricity price escalation (real) | 2%/yr | 0%, 4% |
 | Battery life | LFP, ~10 yr (warranty) / 6,000 EFC to 80% capacity | — |
-| End-of-life / residual | run-to-fade to a hard SOH floor; unconsumed warranty value of the in-service pack credited at the horizon | — |
+| End-of-life / residual | replacements paid in full; unused life of the in-service pack credited at the horizon on its **realised** predecessor life (Spec 06 §4.1, superseding the earlier warranty-life basis). No-replacement receives zero residual | — |
+| PV capex | £1,109/kWp, linear — DESNZ 2025/26 inflation-adjusted median, 4–10 kW domestic band | — |
+| Battery capex | £4,584 fixed + £373/kWh — DESNZ capacity bands | F ∈ [2,900, 4,900] with c ∈ [490, 310] |
+
+The capex specification and the evidence for it are in
+[`docs/results_summary.md`](docs/results_summary.md) §1; the canonical assumption table
+is [`.github/specs/README.md`](.github/specs/README.md).
 
 ## Development Method
 
@@ -99,5 +105,19 @@ See `requirements.txt`. Key packages:
 - **Degradation & capacity-fade model complete** (`src/degradation.py`, Spec 02) —
   derived throughput penalty, additive cycle + calendar fade, run-to-fade
   replacement policy, and SOC-exposure metrics.
-- **In progress (v3)** — tariff layer, multi-location ingestion, and the
-  parameter-sweep harness. See [.github/specs/](.github/specs/).
+- **Multi-location ingestion and parameter-sweep harness complete** (Specs 04–05) —
+  Inverness / Glasgow / Manchester / Plymouth, versioned results schema, controller axis.
+- **Full parameter study complete and independently verified (Spec 06, 2026-07-27)** —
+  378 distributed jobs across 12 machines produced 2,160 cached dispatch surrogates,
+  4,374 scenario-policy rows and 110,700 peak events, over 3 locations × 3 tariffs ×
+  6 PV sizes × 6 battery sizes × 6 wear penalties × 3 controllers × 2 lifetime policies.
+  Passed a blind second-reviewer gate with zero mismatches and shown byte-reproducible
+  from cache. Supervisor sign-off outstanding.
+- **Capital cost re-specified (2026-07-29)** — battery capex moved from linear £890/kWh
+  to £4,584 + £373/kWh fitted to DESNZ capacity bands, with a sensitivity envelope; PV
+  stays linear because its fitted fixed term is indistinguishable from zero. Headline
+  finding is unchanged across both specifications: in the most favourable cell studied a
+  domestic battery returns 59–67% of its installed cost in discounted 20-year benefit.
+- **Next: Spec 07** — analysis figures (NPV frontier, viability heatmaps, tornado, peak
+  loads). See [.github/specs/](.github/specs/) and
+  [`docs/results_summary.md`](docs/results_summary.md).

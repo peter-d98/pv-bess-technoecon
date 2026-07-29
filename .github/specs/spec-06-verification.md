@@ -239,6 +239,19 @@ approximation, by up to 5.00 kW — the grid-charging term §4.6 requires be ret
 
    Recommendation: re-specify capex as `c_fixed + c_var × kWh`, and lead Spec 07 with the
    break-even price surface rather than an "optimal size" that is a grid artefact.
+
+   > **Correction (2026-07-29).** Two claims above are wrong and are retained only because
+   > this is an acceptance record. (a) Marginal benefit is **bounded** as Q → 0 — the
+   > first-interval averages are £436/kWh (flat), £936 (E7) and £1,037 (Agile) — so a finer
+   > size grid *converges*; it does not move the boundary indefinitely. (b) "An optimal size
+   > that is a grid artefact" is too strong. Under linear £890/kWh the E7 and Agile optima
+   > were genuinely *interior* (£936/kWh marginal benefit against a £890 price, crossing
+   > below it thereafter), and where the optimum did sit at the edge the NPV there was
+   > negative — a correct "do not buy at any size in range", which the grid expresses
+   > through its zero-battery reference row. The valid objection is narrower: at £890/kWh a
+   > 0.5 kWh system costs £445, so the optimum was being placed outside the size range where
+   > price data exists. The recommendation itself was sound and has been adopted. Full
+   > argument in [`docs/results_summary.md`](../../docs/results_summary.md) §1.1 and §4.
 2. **The §5 run manifest was never written.** No record of commit, Python/CVXPY/solver
    versions, machine partitions, commands, cache counts, or completion status exists in
    the repo. A10 is still evidenced by ctimes and byte-identical reassembly, but this is
@@ -265,10 +278,41 @@ changes to accepted specs out of scope.
 
 **Sign-off:** technically verified and recommended for acceptance (2026-07-27) — the blind
 gate passed with zero mismatches, and the artefacts were shown byte-reproducible from
-cache. Outstanding:
+cache. Outstanding at that date:
 - supervisor sign-off on the widened grid, the 0.08 coverage floor, the no-replacement
   sensitivity, and the day-ahead myopia limitation;
 - a decision on open item 1 (linear battery capex / boundary optimum) before Spec 07
   figures are drawn, since it determines whether "optimal battery size" is a reportable
   result or a grid artefact;
 - the §5 run manifest (open item 2).
+
+**Resolution of the open items (2026-07-29).**
+
+- **Item 1 — closed.** Capex is re-specified as `F + c·Q` for the battery (adopted
+  central case £4,584 + £373/kWh, envelope F ∈ [2,900, 4,900] with c ∈ [490, 310]) and
+  left linear for PV at £1,109/kWp, because PV's fitted fixed term is £98 and negative in
+  one year, i.e. indistinguishable from zero. Recorded in [README.md](README.md); derived
+  in [`docs/results_summary.md`](../../docs/results_summary.md) §1. Optimal size moves off
+  the lower boundary to 5–10 kWh for E7 and Agile. **No re-solving was required** — capex
+  never enters dispatch, and all six penalty values on the axis are explicit, so each
+  specification is a ~25 s zero-solve reassembly of this same 2,160-curve cache.
+  Re-running at the original parameters reproduces `sweep_scenarios_v2.csv` with maximum
+  absolute NPV and capex difference **0.00**, so nothing in this acceptance record is
+  invalidated by the change.
+- **Item 2 — closed.** [`docs/spec06_run_manifest.md`](../../docs/spec06_run_manifest.md)
+  reconstructs the §5 manifest: commit and code-freeze evidence, environment, the 12-way
+  partition table, commands, cache counts, completion status, and five incidents. Its §6
+  lists what could not be recovered (host identity and library versions for partitions
+  4–11, and their `parts/`/`logs/` directories, which were never merged onto the assembly
+  machine).
+- **Items 3 and 4 — unchanged.** Penalty-axis degeneracy is an efficiency note, not a
+  correctness one; the residual asymmetry remains conservative in the direction that
+  strengthens the no-replacement conclusion.
+- **Still outstanding:** supervisor sign-off, as above. Spec 07 is unblocked.
+
+**Note for later readers.** `tests/test_spec06_artefacts.py` asserts against
+`results/sweep_scenarios_v2.csv` — the original linear-capex assembly — including
+`test_v5_pv_capex_linear_and_saving_rises_with_pv_size`, which checks `capex = pv_kwp ×
+1109` exactly. That file is immutable and the test is correct as written. Pointing those
+oracles at one of the `_central` / `_lowF` / `_highF` assemblies would fail on capex, by
+design: only the structural and dispatch-derived oracles carry over.

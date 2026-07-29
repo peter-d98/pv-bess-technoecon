@@ -1,6 +1,13 @@
 # Spec 06 — Sweep & Economic Extensions
 
-**Status:** In progress — increments 1–6 implemented (2026-07-25) · **Owner:** — · **Depends on:** Specs 1–5 · **Blocks:** Spec 7 (figures)
+**Status:** Increments 1–7 implemented; full experiment run and independently verified
+(2026-07-27), pending supervisor sign-off · **Owner:** — · **Depends on:** Specs 1–5 ·
+**Blocks:** Spec 7 (figures) — **no longer blocking as of 2026-07-29**, see the capex
+decision in [README.md](README.md)
+
+Acceptance record and known deviations: [spec-06-verification.md](spec-06-verification.md).
+Run provenance: [`docs/spec06_run_manifest.md`](../../docs/spec06_run_manifest.md).
+Findings: [`docs/results_summary.md`](../../docs/results_summary.md).
 
 ## 1. Purpose
 
@@ -239,6 +246,13 @@ budget **3-4 hours** for imbalance, I/O, and setup. Each machine writes to its o
 working copy of the cache; final assembly merges every curve into one **flat**
 directory and rebuilds the table with zero solves.
 
+> **As built (2026-07-27).** The launchers do not partition the 324 MILP jobs separately.
+> They enumerate all **378** jobs (324 MILP + 54 rules, interleaved in nested
+> location → PV → tariff → penalty order) and split `job_index mod 12`, giving **31–32
+> jobs per machine** rather than 27 MILP + rules. The split is still disjoint and
+> complete (oracle V14). Per-partition job and curve counts are in
+> [`docs/spec06_run_manifest.md`](../../docs/spec06_run_manifest.md) §3.
+
 ## 5. Outputs and preservation
 
 The following existing artefacts are immutable inputs to the audit trail and **MUST NOT
@@ -247,10 +261,17 @@ be overwritten**:
 - `results/sweep_scenarios_capexv1.csv`; and
 - existing `results/cache/` entries.
 
-Spec 06 writes to new, explicit paths, provisionally:
+Spec 06 writes to new, explicit paths:
 - `results/sweep_scenarios_v2.csv`;
 - `results/sweep_peak_events_v2.csv`; and
 - `results/cache/sweep_v2/`.
+
+`sweep_scenarios_v2.csv` is the original **linear-capex** assembly and joins the
+immutable list above. The capex re-specification of 2026-07-29 writes three further
+assemblies from the same cache — `sweep_scenarios_v2_central.csv` (adopted),
+`_lowF.csv` and `_highF.csv` — which supersede it for reporting but do not replace it;
+it remains the comparison case that makes the robustness argument. All four share
+`sweep_peak_events_v2.csv`, since capex does not enter dispatch.
 
 The increment-6 coarse experiment writes to separate paths so it can never be mistaken
 for the full experiment or pollute its cache:
@@ -370,11 +391,16 @@ Before acceptance, an independent reviewer must:
   positive SOH (minimum 0.339), so the additive fade law needs no lower bound for
   Glasgow/Agile. The harness fails loudly rather than clipping, so the full experiment
   will surface any remaining location/tariff that violates this.
-- **Open:** the MILP solver is not pinned. CVXPY currently selects `SCIPY` (HiGHS) because
-  no SCIP or CBC is installed, contradicting the stated SCIP/CBC stack. A machine with a
-  different MIP-capable solver installed would silently produce a different solver and
-  potentially different degenerate optima. Pin the solver before distributing the full
-  experiment.
+- **Resolved (2026-07-25):** the MILP solver was unpinned — CVXPY selected `SCIPY`
+  (HiGHS) only because no SCIP or CBC was installed, so a machine with a different
+  MIP-capable solver would have silently used it. Closed by adding `--solver` to both
+  runners and passing `--solver SCIPY` on every one of the 378 jobs, plus
+  `requirements-lock.txt` (see §10).
+- **Resolved (2026-07-29):** battery capex is no longer purely linear. The blind gate
+  raised it as open item 1; the adopted specification is `F + c·Q` with a sensitivity
+  envelope, recorded in [README.md](README.md) and derived in
+  [`docs/results_summary.md`](../../docs/results_summary.md) §1. PV remains linear
+  because its fitted fixed term is indistinguishable from zero.
 
 ## 10. Decision record
 
