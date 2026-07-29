@@ -73,8 +73,11 @@ class SweepDispatchProvider:
         export: str = "matched",
         seg_rate: float | None = None,
         pv_cost_per_kwp: float = 1109.0,
+        pv_capex_fixed: float = 0.0,
         pv_om_frac: float = 0.01,
         battery_cost_per_kwh: float = 890.0,
+        battery_capex_fixed: float = 0.0,
+        replacement_fixed_frac: float = 0.3,
         deg_base: DegradationParams | None = None,
     ) -> None:
         self.year = year
@@ -83,8 +86,11 @@ class SweepDispatchProvider:
         self.export = export
         self.seg_rate = seg_rate
         self.pv_cost_per_kwp = pv_cost_per_kwp
+        self.pv_capex_fixed = pv_capex_fixed
         self.pv_om_frac = pv_om_frac
         self.battery_cost_per_kwh = battery_cost_per_kwh
+        self.battery_capex_fixed = battery_capex_fixed
+        self.replacement_fixed_frac = replacement_fixed_frac
         self.deg_base = deg_base or DegradationParams()
         self.soc_min = BatteryParams().soc_min
         self.soc_max = BatteryParams().soc_max
@@ -151,14 +157,23 @@ class SweepDispatchProvider:
         return peak_metrics(schedule)
 
     def capex(self, pv_kwp: float, size_kwh: float) -> float:
-        # Battery cost already includes the hybrid inverter.
-        return pv_kwp * self.pv_cost_per_kwp + size_kwh * self.battery_cost_per_kwh
+        # Battery cost already includes the hybrid inverter. The fixed terms are
+        # the size-independent install overhead; the battery one is only incurred
+        # if a battery is actually fitted, so the PV-only reference does not pay it.
+        cost = self.pv_capex_fixed + pv_kwp * self.pv_cost_per_kwp
+        if size_kwh > 0.0:
+            cost += self.battery_capex_fixed + size_kwh * self.battery_cost_per_kwh
+        return cost
 
     def pv_om_cost(self, pv_kwp: float) -> float:
+        # O&M tracks the array itself, not the one-off install overhead.
         return self.pv_om_frac * pv_kwp * self.pv_cost_per_kwp
 
     def replacement_capex(self, size_kwh: float) -> float:
-        return size_kwh * self.battery_cost_per_kwh
+        # A swap re-uses the cabling, protection and mounting of the first fit,
+        # so only a fraction of the fixed install cost is incurred again.
+        return (self.replacement_fixed_frac * self.battery_capex_fixed
+                + size_kwh * self.battery_cost_per_kwh)
 
     def dispatch_year(
         self, location, tariff, pv_kwp, nominal_size_kwh, penalty, controller
@@ -300,7 +315,15 @@ def main() -> None:
     parser.add_argument("--solver", type=str, default="SCIPY",
                         help="CVXPY solver used for MILP dispatch solves (default: SCIPY/HiGHS).")
     parser.add_argument("--pv-cost-per-kwp", type=float, default=1109.0)
+    parser.add_argument("--pv-capex-fixed", type=float, default=0.0,
+                        help="Size-independent PV install cost (GBP).")
     parser.add_argument("--battery-cost-per-kwh", type=float, default=890.0)
+    parser.add_argument("--battery-capex-fixed", type=float, default=0.0,
+                        help="Size-independent battery install cost (GBP), charged "
+                             "only when a battery is fitted.")
+    parser.add_argument("--replacement-fixed-frac", type=float, default=0.3,
+                        help="Fraction of --battery-capex-fixed re-incurred on a "
+                             "replacement swap.")
     parser.add_argument("--pv-om-frac", type=float, default=0.01)
     parser.add_argument("--discount-rate", type=float, default=0.05)
     parser.add_argument("--horizon-years", type=int, default=20)
@@ -366,7 +389,10 @@ def main() -> None:
         year=args.year, solver=args.solver, c_rate=args.c_rate,
         export=args.export, seg_rate=args.seg_rate,
         pv_cost_per_kwp=args.pv_cost_per_kwp, pv_om_frac=args.pv_om_frac,
-        battery_cost_per_kwh=args.battery_cost_per_kwh, deg_base=_deg_base(args),
+        pv_capex_fixed=args.pv_capex_fixed,
+        battery_cost_per_kwh=args.battery_cost_per_kwh,
+        battery_capex_fixed=args.battery_capex_fixed,
+        replacement_fixed_frac=args.replacement_fixed_frac, deg_base=_deg_base(args),
     )
     econ_base = _econ_base(args)
     deg_base = _deg_base(args)
