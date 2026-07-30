@@ -61,8 +61,15 @@ def _monthly_yield_kwh_per_kwp(power_kw: pd.Series, nominal_kwp: float = 4.0) ->
 def make_plot(out_path: Path) -> None:
     data_dir = out_path.parent
     files = _find_timeseries_files(data_dir.parent)
+
+    # Restrict to the three study locations requested for this figure.
+    allowed_lats = {"50.373", "53.483", "57.479"}  # Plymouth, Manchester, Inverness
+    files = [p for p in files if p.name.split("_")[1] in allowed_lats]
+
     if not files:
-        raise FileNotFoundError("No Timeseries_*_2023_2023.csv files found in data/")
+        raise FileNotFoundError(
+            "No matching Timeseries_*_2023_2023.csv files found for Plymouth/Manchester/Inverness in data/"
+        )
 
     _configure_style()
 
@@ -70,7 +77,6 @@ def make_plot(out_path: Path) -> None:
     lat_to_name = {
         "50.373": "Plymouth",
         "53.483": "Manchester",
-        "55.829": "Glasgow",
         "57.479": "Inverness",
     }
 
@@ -81,7 +87,7 @@ def make_plot(out_path: Path) -> None:
     n_locs = len(files)
     width = 0.8 / n_locs
 
-    colors = ["#5D8DE5", "#FF9045", "#48A23C", "#E75959"]
+    colors = ["#5D8DE5", "#EDDF47", "#48A23C"]
     annual_yields = {}
     for idx, path in enumerate(files):
         s = _load_p_series(path)
@@ -95,12 +101,13 @@ def make_plot(out_path: Path) -> None:
         offset = (idx - (n_locs - 1) / 2) * width
         ax.bar(x + offset, monthly.values, width=width, label=label, color=colors[idx % len(colors)])
 
-    ax.set_xlabel("Month", fontsize=14)
-    ax.set_ylabel("PV yield (kWh/kWp)", fontsize=14)
+    ax.set_xlabel("Month", fontsize=18)
+    ax.set_ylabel("PV yield (kWh/kWp)", fontsize=18)
     ax.set_xticks(x)
-    ax.set_xticklabels(month_labels, fontsize=12)
-    ax.tick_params(axis="y", labelsize=12)
-    ax.legend(title="Location", fontsize=12, title_fontsize=13, loc='upper left')
+    ax.set_xticklabels(month_labels, fontsize=15)
+    ax.tick_params(axis="y", labelsize=15)
+    ax.legend(title="Location", fontsize=14, title_fontsize=13, loc='upper left')
+    
     ax.grid(axis="y", alpha=0.3)
     
     # Add a summary table with annual yields
@@ -109,7 +116,7 @@ def make_plot(out_path: Path) -> None:
     table_data = [
     ["Plymouth",   f"{annual_yields['Plymouth']:.0f}"],
     ["Manchester", f"{annual_yields['Manchester']:.0f}"],
-    ["Glasgow",    f"{annual_yields['Glasgow']:.0f}"],
+    # ["Glasgow",    f"{annual_yields['Glasgow']:.0f}"],
     ["Inverness",  f"{annual_yields['Inverness']:.0f}"],
     ["UK average", f"{uk_average:.0f}"],
 ]
@@ -141,7 +148,7 @@ def make_plot(out_path: Path) -> None:
             cell.set_linewidth(1.0)
             cell.set_text_props(weight="bold")
 
-        elif row == 5:  # UK average row
+        elif row == 4:  # UK average row
             cell.visible_edges = "TB"
             cell.set_linewidth(1.0)
             cell.set_text_props(weight='bold')

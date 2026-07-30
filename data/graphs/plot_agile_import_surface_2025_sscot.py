@@ -22,8 +22,8 @@ from matplotlib.colors import PowerNorm
 
 def _default_paths() -> tuple[Path, Path]:
     here = Path(__file__).resolve().parent
-    csv_path = here.parent / "agile-half-hour-actual-rates-01-01-2025_31-12-2025_SScot.csv"
-    out_path = here / "agile_import_surface_2025_sscot.png"
+    csv_path = here.parent / "agile-half-hour-actual-rates-01-01-2025_31-12-2025_NScot.csv"
+    out_path = here / "agile_import_surface_2025_Nscot.png"
     return csv_path, out_path
 
 
@@ -157,9 +157,9 @@ def make_plot(csv_path: Path, out_path: Path) -> None:
         (ax_import, "Agile import price in p / kWh"),
         (ax_export, "Agile export price in p / kWh"),
     ):
-        ax.set_xlabel("Hour of the day", labelpad=10, fontsize=14)
-        ax.set_ylabel("Day of the year", labelpad=12, fontsize=14)
-        ax.set_zlabel(zlabel, labelpad=10, rotation=90, fontsize=14)
+        ax.set_xlabel("Hour of the day", labelpad=10, fontsize=18)
+        ax.set_ylabel("Day of the year", labelpad=12, fontsize=18)
+        ax.set_zlabel(zlabel, labelpad=10, rotation=90, fontsize=18)
         ax.zaxis.set_rotate_label(False)
 
         ax.set_xlim(0, 24)
@@ -176,12 +176,12 @@ def make_plot(csv_path: Path, out_path: Path) -> None:
     ax_import.set_title(
         f"Import average for 2025: {avg_import:.2f} p / kWh",
         y=1.02,
-        fontsize=16,
+        fontsize=18,
     )
     ax_export.set_title(
         f"Export average for 2025: {avg_export:.2f} p / kWh",
         y=1.02,
-        fontsize=16,
+        fontsize=18,
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
