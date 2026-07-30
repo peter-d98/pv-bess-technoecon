@@ -1,7 +1,8 @@
 """Compare dispatch strategies to quantify the daily-MILP myopia effect.
 
 Three strategies are compared for a configurable cell (default: Glasgow / Agile
-/ 10 kWh, 7.42 p/kWh penalty):
+/ 4 kWp PV / 10 kWh at 0.5C = 5 kW, 5 p/kWh penalty — the Spec 06 power model
+and penalty axis):
 
   1. daily_milp     — production method: one MILP solve per day with SOC
                       continuity across midnight; the solver never sees beyond
@@ -45,7 +46,7 @@ from src.battery import BatteryParams
 from src.controllers import self_consumption as sc_controller
 from src.data_loader import HALFHOURS_PER_DAY, load_all
 from src.degradation import DegradationParams, derive_throughput_penalty
-from src.locations import get_location, resolve_paths
+from src.locations import get_location, resolve_paths, resolve_pv_size_path
 from src.model import solve_dispatch
 from src.tariffs import build_tariff
 
@@ -64,6 +65,8 @@ def solve_year_chunked(
     data: pd.DataFrame,
     battery: BatteryParams,
     horizon_days: int,
+    solver: str | None = "SCIPY",
+    terminal_soc: bool = True,
 ) -> pd.DataFrame:
     """Solve the dispatch with an N-day rolling MILP horizon.
 
@@ -94,8 +97,10 @@ def solve_year_chunked(
         sl = slice(d * HALFHOURS_PER_DAY, end_day * HALFHOURS_PER_DAY)
         step_bat = replace(battery, soc_init=carried_soc)
 
-        # For the full-year solve enforce terminal == initial (year accounting).
-        terminal = full_year
+        # For the full-year solve enforce terminal == initial (year accounting)
+        # unless the caller disables it to match the daily method, which leaves
+        # 31 Dec unconstrained and so may drain the pack for free.
+        terminal = full_year and terminal_soc
 
         result = solve_dispatch(
             pv_kw=pv[sl],
@@ -105,6 +110,7 @@ def solve_year_chunked(
             battery=step_bat,
             dt_hours=DT_HOURS,
             terminal_soc_equals_initial=terminal,
+            solver=solver,
         )
         if result.status not in ("optimal", "optimal_inaccurate"):
             raise RuntimeError(
@@ -172,22 +178,41 @@ def main() -> None:
     parser.add_argument("--tariff", default="agile",
                         choices=["flat", "e7", "agile"],
                         help="Tariff name (default: agile)")
+    parser.add_argument("--pv-kwp", type=float, default=4.0, metavar="KWP",
+                        help="PV array size kWp; selects the matching on-disk "
+                             "profile (default: 4.0)")
     parser.add_argument("--battery-cap", type=float, default=10.0, metavar="KWH",
                         help="Battery nominal capacity kWh (default: 10.0)")
-    parser.add_argument("--deg-cost", type=float, default=None, metavar="GBP_PER_KWH",
-                        help="Throughput degradation cost £/kWh cycled. "
-                             "Default: derived from capex / (6000 EFC × 2 × capacity).")
+    parser.add_argument("--c-rate", type=float, default=0.5,
+                        help="Nameplate power as a fraction of nominal capacity "
+                             "(default: 0.5, i.e. 0.5C as in Spec 06)")
+    parser.add_argument("--deg-cost", type=float, default=0.05, metavar="GBP_PER_KWH",
+                        help="Throughput degradation cost £/kWh cycled. Default 0.05 "
+                             "(5 p/kWh, mid-point of the explicit Spec 06 penalty "
+                             "axis, which the sweep uses in place of a derived value).")
+    parser.add_argument("--derive-deg-cost", action="store_true",
+                        help="Legacy Spec 05 rule: derive the penalty from "
+                             "capex / (6000 EFC × 2 × capacity). NOTE this uses linear "
+                             "£890/kWh, which is now only a capex *sensitivity* — the "
+                             "base is the band-observed price. Not what the sweep does.")
+    parser.add_argument("--solver", default="SCIPY",
+                        help="CVXPY solver for the MILP solves (default: SCIPY/HiGHS)")
     parser.add_argument("--horizon-days", type=int, default=365, metavar="N",
                         help="Days per MILP solve for the multi-day strategy "
                              "(default: 365 = full-year single solve). "
                              "Use a smaller value (e.g. 7) for a faster test.")
+    parser.add_argument("--free-terminal-soc", action="store_true",
+                        help="Drop the terminal==initial SOC constraint on the "
+                             "full-year solve, matching the daily method's "
+                             "unconstrained 31 Dec (fairer myopia control).")
     parser.add_argument("--skip-fullyear", action="store_true",
                         help="Skip the full-year/multi-day MILP (can be slow).")
     args = parser.parse_args()
 
     # -- data ----------------------------------------------------------------
     loc = get_location(args.location)
-    pv_path, agile_path = resolve_paths(loc, DATA_DIR)
+    _, agile_path = resolve_paths(loc, DATA_DIR)
+    pv_path = resolve_pv_size_path(loc, DATA_DIR, args.pv_kwp)
     data = load_all(pv_path, DEFAULT_DEMAND, agile_path, year=2025)
 
     imp, exp = build_tariff(
@@ -201,21 +226,26 @@ def main() -> None:
     # -- battery -------------------------------------------------------------
     battery_cost_per_kwh = 890.0
     deg_cost = args.deg_cost
-    if deg_cost is None:
+    if args.derive_deg_cost:
         deg_cost = derive_throughput_penalty(
             battery_capex=battery_cost_per_kwh * args.battery_cap,
             capacity_kwh=args.battery_cap,
             params=DegradationParams(cycle_life_efc=6000.0),
         )
 
+    # Spec 06: nameplate power is 0.5C of the nominal capacity, not a fixed 3 kW.
+    power_kw = args.c_rate * args.battery_cap
+
     battery = BatteryParams(
         capacity_kwh=args.battery_cap,
-        max_charge_kw=3.0,
-        max_discharge_kw=3.0,
+        max_charge_kw=power_kw,
+        max_discharge_kw=power_kw,
         degradation_cost_per_kwh=deg_cost,
     )
 
-    print(f"\nCell: {loc.label} / {args.tariff.upper()} / {args.battery_cap} kWh")
+    print(f"\nCell: {loc.label} / {args.tariff.upper()} / {args.pv_kwp} kWp / "
+          f"{args.battery_cap} kWh @ {power_kw:.2f} kW ({args.c_rate}C)")
+    print(f"  PV profile: {pv_path.name}")
     print(f"  Degradation penalty: {deg_cost:.4f} £/kWh  ({deg_cost * 100:.2f} p/kWh)")
 
     cf = counterfactual_cost(data)
@@ -226,7 +256,7 @@ def main() -> None:
     # -- strategy 1: daily MILP (production method) --------------------------
     print("\n[1/3] Daily MILP (1-day rolling horizon)...", flush=True)
     t0 = time.perf_counter()
-    sched_daily = solve_year(data, battery, terminal_soc_daily=False)
+    sched_daily = solve_year(data, battery, terminal_soc_daily=False, solver=args.solver)
     elapsed = time.perf_counter() - t0
     costs_daily = battery_annual_costs(sched_daily, battery)
     costs_daily["annual_saving"] = annual_saving(costs_daily, cf)
@@ -252,7 +282,11 @@ def main() -> None:
             print("  Note: solving all 17,520 half-hours at once. "
                   "This may take several minutes.")
         t0 = time.perf_counter()
-        sched_fy = solve_year_chunked(data, battery, horizon)
+        sched_fy = solve_year_chunked(
+            data, battery, horizon,
+            solver=args.solver,
+            terminal_soc=not args.free_terminal_soc,
+        )
         elapsed = time.perf_counter() - t0
         costs_fy = battery_annual_costs(sched_fy, battery)
         costs_fy["annual_saving"] = annual_saving(costs_fy, cf)
