@@ -145,6 +145,54 @@ against the merged cache regenerated them sha256-identical, with no new cache wr
 5. **Solver-noise deviations** are quantified in the verification document, not repeated
    here.
 
+## 5a. Capex re-assemblies (2026-07-29)
+
+No solves and no cache writes: each is a re-read of the same 2160 curves at a different
+price, ~25 s. Every capex specification in `docs/results_summary.md` traces to one of
+these commands.
+
+```bash
+# fixed-plus-variable sensitivity, (F, c) in {(2959,475), (4584,373), (4897,312)}
+python scripts/run_sweep.py --pv-cost-per-kwp 1109 --pv-capex-fixed 0 \
+    --battery-cost-per-kwh <c> --battery-capex-fixed <F> \
+    --out results/sweep_scenarios_v2_<name>.csv --peak-out <tmp> --overwrite
+
+# the two band prices, then the band assembly
+python scripts/run_sweep.py --pv-cost-per-kwp 1109 --pv-capex-fixed 0 \
+    --battery-cost-per-kwh 1300 --battery-capex-fixed 0 \
+    --out results/_band_c1300.csv --peak-out <tmp> --overwrite
+python scripts/run_sweep.py --pv-cost-per-kwp 1109 --pv-capex-fixed 0 \
+    --battery-cost-per-kwh 890 --battery-capex-fixed 0 \
+    --out results/_band_c890.csv --peak-out <tmp> --overwrite
+python scripts/assemble_band_capex.py
+
+# discount-rate sensitivity (results_summary.md §2.2): r in {0.035, 0.07} x c in {1300, 890}.
+# Not persisted under results/ — regenerate on demand, ~25 s each, zero solves.
+python scripts/run_sweep.py --pv-cost-per-kwp 1109 --pv-capex-fixed 0 \
+    --battery-cost-per-kwh <c> --battery-capex-fixed 0 --discount-rate <r> \
+    --out <tmp>.csv --peak-out <tmp>.csv --overwrite
+```
+
+| Artefact | Count / hash |
+|---|---|
+| `results/_band_c1300.csv` | 4374 rows — sha256 `78f9c306154cf111b7a1d8da…` |
+| `results/_band_c890.csv` | 4374 rows — sha256 `5340b655aa8ca5df5b8127c6…` |
+| `results/sweep_scenarios_v2_band.csv` | 3510 rows — sha256 `45b3be0a6506b547f8cb8ce7…` |
+
+Two checks stand behind the primary table:
+
+1. **Regression.** `_band_c890.csv` reproduces the immutable `sweep_scenarios_v2.csv`
+   **sha256-identical** (`5340b655…`, §5) — the re-assembly path is behaviour-preserving
+   at the original parameters.
+2. **Merge integrity.** `assemble_band_capex.py` asserts, and writes nothing otherwise:
+   the two runs share an identical key set; every dispatch-derived column is bit-identical
+   across them (max abs difference 0.0, confirming capex never enters dispatch); each
+   battery size is drawn from exactly one source (2592 rows at £1,300/kWh, 918 at
+   £890/kWh, zero key overlap, union equal to the expected 3510); and every row's implied
+   battery capex reconciles to `band price × size` to within 1e-6. 0.5 kWh is dropped as
+   outside the published bands. The assertions were confirmed to bite by perturbing one
+   dispatch value in a source and observing the script refuse to write.
+
 ## 6. Gaps requiring confirmation
 
 Recoverable only from the operator or the university machines:

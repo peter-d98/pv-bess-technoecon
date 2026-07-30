@@ -48,7 +48,7 @@ Spec 01 (the NPV economic model) in `.github/specs/` is the worked reference exa
 | Usable SOC window | 10%–90% |
 | Baseline degradation cost | 7.42p/kWh cycled, **derived** from capex / (6000 EFC × 2 × 10 kWh) at runtime (pessimistic scenario; `BatteryParams` default is 0). Optimistic scenario 5.56p (8000 EFC); a zero-penalty case (wear ignored in dispatch) is the third degradation axis point |
 | PV cost | £1,109/kWp (complete PV system incl. its inverter) |
-| Battery cost | £890/kWh, **including the hybrid inverter** (also the replacement cost + penalty basis) |
+| Battery cost | £890/kWh, **including the hybrid inverter**. *Baseline record only.* The sweep prices the battery at the DESNZ median for its own capacity band — £1,300/kWh (1–5.99 kWh), £890/kWh (6–10.99 kWh) — so £890 applies to the 10 kWh baseline and understates every smaller size. See [`.github/specs/README.md`](specs/README.md) |
 | PV O&M | 1% of PV capital/yr (whole-system framing only) |
 | Component lives | battery + hybrid inverter 10 yr (replaced together as one unit, since they share a life), PV 20 yr; SOH at EoL/replacement 80% (= 6000-EFC literature endpoint) |
 | Whole-system capex (4 kWp, 10 kWh) | £13,336 (PV £4,436 + battery-incl-inverter £8,900) |

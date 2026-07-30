@@ -267,10 +267,12 @@ Spec 06 writes to new, explicit paths:
 - `results/cache/sweep_v2/`.
 
 `sweep_scenarios_v2.csv` is the original **linear-capex** assembly and joins the
-immutable list above. The capex re-specification of 2026-07-29 writes three further
-assemblies from the same cache — `sweep_scenarios_v2_central.csv` (adopted),
-`_lowF.csv` and `_highF.csv` — which supersede it for reporting but do not replace it;
-it remains the comparison case that makes the robustness argument. All four share
+immutable list above. The capex re-specification of 2026-07-29 writes four further
+assemblies from the same cache: `sweep_scenarios_v2_band.csv` (**adopted primary**,
+band-observed £/kWh, built by `scripts/assemble_band_capex.py`) and
+`sweep_scenarios_v2_{central,lowF,highF}.csv` (the fixed-plus-variable sensitivity).
+These supersede `sweep_scenarios_v2.csv` for reporting but do not replace it — it is
+retained as the conventional-literature sensitivity. All share
 `sweep_peak_events_v2.csv`, since capex does not enter dispatch.
 
 The increment-6 coarse experiment writes to separate paths so it can never be mistaken
@@ -396,11 +398,14 @@ Before acceptance, an independent reviewer must:
   MIP-capable solver would have silently used it. Closed by adding `--solver` to both
   runners and passing `--solver SCIPY` on every one of the 378 jobs, plus
   `requirements-lock.txt` (see §10).
-- **Resolved (2026-07-29):** battery capex is no longer purely linear. The blind gate
-  raised it as open item 1; the adopted specification is `F + c·Q` with a sensitivity
-  envelope, recorded in [README.md](README.md) and derived in
-  [`docs/results_summary.md`](../../docs/results_summary.md) §1. PV remains linear
-  because its fitted fixed term is indistinguishable from zero.
+- **Resolved (2026-07-29):** battery capex is no longer a single pooled £/kWh. The blind
+  gate raised it as open item 1. The adopted specification prices each size at the DESNZ
+  median for its own capacity band; `F + c·Q` and the original linear £890/kWh are both
+  retained as sensitivities. Recorded in [README.md](README.md), derived in
+  [`docs/results_summary.md`](../../docs/results_summary.md). PV remains linear because
+  its fitted fixed term is indistinguishable from zero. Two reporting consequences: the
+  0.5 kWh size is dropped (below the lowest published band), and optimal battery size is
+  reported as not identified, since the bands constrain average and not marginal price.
 
 ## 10. Decision record
 

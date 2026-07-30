@@ -35,22 +35,44 @@ the dissertation.
 | Fade model | additive linear cycle + linear calendar | √t calendar; SOC-dependent calendar |
 | In-dispatch penalty | derived `capex / (N_EoL · 2 · Q_nom)` ≈ 7.42p/kWh at £8.9k/10kWh (6000 EFC) | 0p / 5.56p (8000 EFC) axis points |
 | PV capex | **£1,109/kWp, linear (no fixed term)** — DESNZ 2025/26 inflation-adjusted median, 4–10 kW domestic band | — |
-| Battery capex | **£4,584 fixed + £373/kWh** — DESNZ 2024/25 + 2025/26 capacity bands, sample-mean size × mean £/kWh | F ∈ [2,900, 4,900] paired with c ∈ [490, 310] |
-| Battery replacement capex | `0.3 · F + c · Q` — a swap re-uses cabling, protection and mounting | frac ∈ [0, 1] via `--replacement-fixed-frac` |
+| Battery capex | **Band-observed £/kWh** — the DESNZ median for the capacity band the size falls in: £1,300/kWh (1–5.99 kWh), £890/kWh (6–10.99 kWh) | linear £890/kWh (conventional); £4,584 + £373/kWh (decomposed), F ∈ [2,900, 4,900] with c ∈ [490, 310] |
+| Battery replacement capex | full band price, `c_band(Q) · Q`, discounted to the replacement year | real battery price decline — proposed, not yet run |
+| Battery sizes reported | **1, 2.5, 5, 10 kWh** — 0.5 kWh is dropped, it lies below the lowest published band | — |
 
-**Capex decision (2026-07-29).** Battery capex is fixed-plus-variable; PV is linear.
-The asymmetry is empirical, not a convenience: fitting the same form to the DESNZ PV
-table gives a fixed term of £98 (and negative in 2023/24), i.e. indistinguishable from
-zero, whereas the battery bands price at £1,300 → £890 → £630/kWh and imply a large
-one. Rationale, the fitted alternatives, and the direct benefit-cost test that does not
-depend on the decomposition are in [`docs/results_summary.md`](../../docs/results_summary.md) §1.
+**Capex decision (2026-07-29).** The battery is priced at the DESNZ published median
+£/kWh **for its own capacity band**; PV stays linear. No parameter is fitted, nothing is
+extrapolated, and the schedule is exact at every size in the grid. 0.5 kWh is excluded
+because it lies outside the published bands, so the table cannot price it.
 
-Two consequences worth noting. The derived in-dispatch penalty above was calibrated on
-linear £890/kWh; under fixed-plus-variable capex the marginal wear cost falls to
-~4.3p/kWh at 10 kWh and becomes **capacity-dependent**, which the "capacity-independent"
-comment in `SweepDispatchProvider.resolve_penalty` no longer describes. Nothing in the
-run is affected — all six penalty values on the sweep axis are explicit, and the 0–9p
-grid still brackets the derived value — but `--deg-scenarios derived` would now behave
+Two alternatives are retained as sensitivities rather than adopted:
+
+- **Linear £890/kWh** (the original specification, `sweep_scenarios_v2.csv`) is the
+  size-pooled median of a population dominated by 6–11 kWh systems. Applied at 1–5 kWh it
+  underprices that band by 32%, which is the sole reason that specification finds a
+  battery worth adding in 24/54 cells. Kept for comparability with the literature.
+- **£4,584 + £373/kWh** (fixed-plus-variable, OLS on the same bands) requires an F that is
+  an extrapolation to Q = 0 from bands whose lowest representative size is 3.5 kWh; the
+  three defensible readings of the table move F by 65%, and F alone decides viability.
+
+Two consequences for how results are reported:
+
+- **Viability is reported as a break-even price in £/kWh** — the price at which the
+  battery's discounted benefit exactly covers its cost — compared against the observed
+  band price. That test needs no decomposition and is identical under all three
+  specifications above.
+- **Optimal battery size is not identified by this study.** The optimum depends on the
+  *marginal* price, and the DESNZ bands constrain only the *average* price. Under a
+  constant £/kWh no interior optimum exists; under the decomposed schedule it is 5–10 kWh.
+  Report as a limitation, not a finding.
+
+Full rationale, the sensitivity tables and the break-even surface are in
+[`docs/results_summary.md`](../../docs/results_summary.md).
+
+The derived in-dispatch penalty in the row above (7.42p/kWh) was calibrated on linear
+£890/kWh and is **not used by the sweep** — all six penalty values on the degradation
+axis are explicit, and `SweepDispatchProvider.resolve_penalty` never consults capex. It
+survives only as `derive_throughput_penalty()` in `src/degradation.py` and as the basis
+of the Spec 01–03 baseline records. `--deg-scenarios derived` would now behave
 differently from its documentation.
 
 ## Degradation design (agreed: two-timescale)
@@ -103,10 +125,20 @@ separate so each stays small and independently testable.
 | [`docs/results_summary.md`](../../docs/results_summary.md) | Findings, incl. the capex re-specification and its sensitivity envelope |
 
 Assembled tables (all gitignored, all from the same 2,160-curve cache, zero solves):
-`sweep_scenarios_v2.csv` is the original linear-capex run and is **immutable**;
-`sweep_scenarios_v2_{central,lowF,highF}.csv` are the adopted capex specification and
-its two envelope corners. `sweep_peak_events_v2.csv` serves all four — dispatch does
-not depend on capex.
+
+| File | Capex | Role |
+|---|---|---|
+| `sweep_scenarios_v2_band.csv` | band-observed £/kWh | **primary** |
+| `sweep_scenarios_v2.csv` | linear £890/kWh | conventional sensitivity; **immutable** |
+| `sweep_scenarios_v2_{central,lowF,highF}.csv` | £4,584+£373, £2,959+£475, £4,897+£312 | decomposed sensitivity |
+| `sweep_peak_events_v2.csv` | — | serves all of them; dispatch does not depend on capex |
+
+The primary table is built by [`scripts/assemble_band_capex.py`](../../scripts/assemble_band_capex.py)
+from two constant-price assemblies (`_band_c1300.csv`, `_band_c890.csv`), since
+`run_sweep.py` takes one scalar price. The script asserts that the two runs describe the
+same grid, that capex has not perturbed any dispatch-derived column, that each size is
+taken from exactly one source with no overlap or omission, and that every row's implied
+battery capex reconciles to `band price × size`. It writes nothing if any check fails.
 
 ## Per-location input validation (Spec 4) — open
 
