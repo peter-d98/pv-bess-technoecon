@@ -1,7 +1,7 @@
 """Unit tests for the lifetime NPV economic model (src/economics.py).
 
 The numbered oracle cases (O1-O9) correspond to the hand-derived expected values
-in .github/specs/spec-01-verification.md, independently reproduced by a second
+in docs/specs/spec-01-verification.md, independently reproduced by a second
 reviewer.
 """
 
