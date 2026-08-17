@@ -36,3 +36,9 @@ results/
 # Data you may not want tracked
 data/raw/
 data/processed/
+
+# Generated figures
+docs/figures/
+
+# Claude Code local settings
+.claude/settings.local.json
