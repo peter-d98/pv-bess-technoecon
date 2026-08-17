@@ -241,7 +241,7 @@ def main() -> None:
                              "Default: 10 (battery warranty)")
     parser.add_argument("--cycle-life-efc", type=float, default=6000.0, metavar="EFC",
                         help="Equivalent full cycles to SOH_eol (cycle ageing alone). "
-                             "Default: 6000 (LFP literature value, defined to 80% SOH)")
+                             "Default: 6000 (LFP literature value, defined to 80%% SOH)")
     parser.add_argument("--soh-eol", type=float, default=0.80, metavar="FRAC",
                         help="State of health at end-of-life / replacement. Default: 0.80 "
                              "(paired with the 6000-EFC literature cycle-life endpoint)")

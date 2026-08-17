@@ -299,7 +299,7 @@ cache. Outstanding at that date:
   Re-running at the original parameters reproduces `sweep_scenarios_v2.csv` with maximum
   absolute NPV and capex difference **0.00**, so nothing in this acceptance record is
   invalidated by the change.
-- **Item 2 — closed.** [`docs/spec06_run_manifest.md`](../../docs/spec06_run_manifest.md)
+- **Item 2 — closed.** [`docs/spec06_run_manifest.md`](spec06_run_manifest.md)
   reconstructs the §5 manifest: commit and code-freeze evidence, environment, the 12-way
   partition table, commands, cache counts, completion status, and five incidents. Its §6
   lists what could not be recovered (host identity and library versions for partitions

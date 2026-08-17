@@ -6,7 +6,7 @@
 decision in [README.md](README.md)
 
 Acceptance record and known deviations: [spec-06-verification.md](spec-06-verification.md).
-Run provenance: [`docs/spec06_run_manifest.md`](../../docs/spec06_run_manifest.md).
+Run provenance: [`docs/spec06_run_manifest.md`](spec06_run_manifest.md).
 Findings: [`docs/results_summary.md`](../../docs/results_summary.md).
 
 ## 1. Purpose
@@ -251,7 +251,7 @@ directory and rebuilds the table with zero solves.
 > location → PV → tariff → penalty order) and split `job_index mod 12`, giving **31–32
 > jobs per machine** rather than 27 MILP + rules. The split is still disjoint and
 > complete (oracle V14). Per-partition job and curve counts are in
-> [`docs/spec06_run_manifest.md`](../../docs/spec06_run_manifest.md) §3.
+> [`docs/spec06_run_manifest.md`](spec06_run_manifest.md) §3.
 
 ## 5. Outputs and preservation
 

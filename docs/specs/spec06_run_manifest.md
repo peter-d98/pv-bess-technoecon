@@ -1,10 +1,10 @@
 # Spec 06 — Full Experiment Run Manifest
 
-Required by [spec-06-sweep-economic-extensions.md](specs/spec-06-sweep-economic-extensions.md) §5.
+Required by [spec-06-sweep-economic-extensions.md](spec-06-sweep-economic-extensions.md) §5.
 Reconstructed 2026-07-28 from the artefacts, launcher scripts, and run records. `results/`
 is gitignored, so this manifest (in `docs/`, which is tracked) is the preserved audit
 record. Verification results are in
-[spec-06-verification.md](specs/spec-06-verification.md).
+[spec-06-verification.md](spec-06-verification.md).
 
 > **Reconstructed, not contemporaneous.** This was written after the experiment finished
 > rather than emitted by the runner. Everything in §1–§5 is evidenced from artefacts on
@@ -70,13 +70,13 @@ Curves per job: 5 per MILP job (one per positive battery size); 10 per rules job
 
 ## 4. Commands
 
-Linux/WSL partitions (0–3), via [`launch.sh`](../launch.sh):
+Linux/WSL partitions (0–3), via [`launch.sh`](../../launch.sh):
 
 ```bash
 ./launch.sh -m <INDEX> -p 6        # 6 concurrent jobs = one per physical core
 ```
 
-Windows partitions (4–11), via [`launch.ps1`](../launch.ps1):
+Windows partitions (4–11), via [`launch.ps1`](../../launch.ps1):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\launch.ps1 -MachineIndex <INDEX> -MaxProc 12
