@@ -78,6 +78,7 @@ class SweepDispatchProvider:
         battery_cost_per_kwh: float = 890.0,
         battery_capex_fixed: float = 0.0,
         replacement_fixed_frac: float = 0.3,
+        replacement_price_factor: float = 1.0,
         deg_base: DegradationParams | None = None,
     ) -> None:
         self.year = year
@@ -91,6 +92,7 @@ class SweepDispatchProvider:
         self.battery_cost_per_kwh = battery_cost_per_kwh
         self.battery_capex_fixed = battery_capex_fixed
         self.replacement_fixed_frac = replacement_fixed_frac
+        self.replacement_price_factor = replacement_price_factor
         self.deg_base = deg_base or DegradationParams()
         self.soc_min = BatteryParams().soc_min
         self.soc_max = BatteryParams().soc_max
@@ -171,9 +173,11 @@ class SweepDispatchProvider:
 
     def replacement_capex(self, size_kwh: float) -> float:
         # A swap re-uses the cabling, protection and mounting of the first fit,
-        # so only a fraction of the fixed install cost is incurred again.
+        # so only a fraction of the fixed install cost is incurred again. Any
+        # real price decline is applied to the pack alone: falling cell prices
+        # are what the forecasts are about, not falling install labour.
         return (self.replacement_fixed_frac * self.battery_capex_fixed
-                + size_kwh * self.battery_cost_per_kwh)
+                + self.replacement_price_factor * size_kwh * self.battery_cost_per_kwh)
 
     def dispatch_year(
         self, location, tariff, pv_kwp, nominal_size_kwh, penalty, controller
@@ -324,6 +328,10 @@ def main() -> None:
     parser.add_argument("--replacement-fixed-frac", type=float, default=0.3,
                         help="Fraction of --battery-capex-fixed re-incurred on a "
                              "replacement swap.")
+    parser.add_argument("--replacement-price-factor", type=float, default=1.0,
+                        help="Replacement pack price as a fraction of first cost "
+                             "(1.0 = no real price decline, the base case). Affects "
+                             "run-to-fade only, and the residual credit with it.")
     parser.add_argument("--pv-om-frac", type=float, default=0.01)
     parser.add_argument("--discount-rate", type=float, default=0.05)
     parser.add_argument("--horizon-years", type=int, default=20)
@@ -392,7 +400,9 @@ def main() -> None:
         pv_capex_fixed=args.pv_capex_fixed,
         battery_cost_per_kwh=args.battery_cost_per_kwh,
         battery_capex_fixed=args.battery_capex_fixed,
-        replacement_fixed_frac=args.replacement_fixed_frac, deg_base=_deg_base(args),
+        replacement_fixed_frac=args.replacement_fixed_frac,
+        replacement_price_factor=args.replacement_price_factor,
+        deg_base=_deg_base(args),
     )
     econ_base = _econ_base(args)
     deg_base = _deg_base(args)
