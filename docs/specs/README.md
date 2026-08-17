@@ -120,8 +120,8 @@ separate so each stays small and independently testable.
 | Document | Contents |
 |---|---|
 | [spec-06-verification.md](spec-06-verification.md) | Oracles V1–V15, blind-review gate, acceptance record, known deviations |
-| [`docs/spec06_run_manifest.md`](../../docs/spec06_run_manifest.md) | Code identity, environment, 12-way partition, commands, incidents |
-| [`docs/spec06_blind_review_report.md`](../../docs/spec06_blind_review_report.md) | Full report from the independent second reviewer |
+| [`docs/spec06_run_manifest.md`](spec06_run_manifest.md) | Code identity, environment, 12-way partition, commands, incidents |
+| [`docs/spec06_blind_review_report.md`](spec06_blind_review_report.md) | Full report from the independent second reviewer |
 | [`docs/results_summary.md`](../../docs/results_summary.md) | Findings, incl. the capex re-specification and its sensitivity envelope |
 
 Assembled tables (all gitignored, all from the same 2,160-curve cache, zero solves):
