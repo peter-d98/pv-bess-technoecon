@@ -1,7 +1,7 @@
 """Unit tests for the degradation and capacity-fade model (Spec 02).
 
 Numeric oracles O1-O11 are hand-derived in
-``.github/specs/spec-02-verification.md`` and reproduced here independently.
+``docs/specs/spec-02-verification.md`` and reproduced here independently.
 """
 
 from __future__ import annotations

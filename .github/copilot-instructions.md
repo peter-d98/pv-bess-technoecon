@@ -13,13 +13,13 @@ Under what conditions is domestic PV–BESS economically viable in the UK when b
 This project is developed with a lightweight spec-driven agile loop. Follow it for any non-trivial task:
 
 1. **Interview before building.** Clarify the real goal before writing code. Surface assumptions and tradeoffs, present options rather than picking silently, and make the user verify key decisions explicitly.
-2. **Small, compartmentalised specs.** Break work into small, independently testable specs under `.github/specs/`, tracked in `.github/specs/README.md`. Each spec states its scope, interface, and an explicit out-of-scope list.
+2. **Small, compartmentalised specs.** Break work into small, independently testable specs under `docs/specs/`, tracked in `docs/specs/README.md`. Each spec states its scope, interface, and an explicit out-of-scope list.
 3. **Precise success criteria.** Every spec defines measurable acceptance criteria — ideally with hand-derived numeric oracles and explicit MUST/SHOULD distinctions. "Done" must be unambiguous.
 4. **Independent verification gate.** Have a second, independent reviewer (a subagent) check the work — recomputing numeric oracles *without* being shown the expected answers, and reviewing the final code against the stated conventions, not merely that tests pass.
 5. **Bring in external context.** Strengthen verification with sources outside the code under test: independent recomputation in a separate tool, literature anchors for assumptions, reference-tool cross-checks, and supervisor sign-off.
 6. **Loop until verified.** Transform tasks into verifiable goals and iterate until every MUST criterion passes. Record decisions and outcomes (session memory / spec files) so they persist.
 
-Spec 01 (the NPV economic model) in `.github/specs/` is the worked reference example of this workflow.
+Spec 01 (the NPV economic model) in `docs/specs/` is the worked reference example of this workflow.
 
 ## Core Methodology
 
@@ -48,7 +48,7 @@ Spec 01 (the NPV economic model) in `.github/specs/` is the worked reference exa
 | Usable SOC window | 10%–90% |
 | Baseline degradation cost | 7.42p/kWh cycled, **derived** from capex / (6000 EFC × 2 × 10 kWh) at runtime (pessimistic scenario; `BatteryParams` default is 0). Optimistic scenario 5.56p (8000 EFC); a zero-penalty case (wear ignored in dispatch) is the third degradation axis point |
 | PV cost | £1,109/kWp (complete PV system incl. its inverter) |
-| Battery cost | £890/kWh, **including the hybrid inverter**. *Baseline record only.* The sweep prices the battery at the DESNZ median for its own capacity band — £1,300/kWh (1–5.99 kWh), £890/kWh (6–10.99 kWh) — so £890 applies to the 10 kWh baseline and understates every smaller size. See [`.github/specs/README.md`](specs/README.md) |
+| Battery cost | £890/kWh, **including the hybrid inverter**. *Baseline record only.* The sweep prices the battery at the DESNZ median for its own capacity band — £1,300/kWh (1–5.99 kWh), £890/kWh (6–10.99 kWh) — so £890 applies to the 10 kWh baseline and understates every smaller size. See [`docs/specs/README.md`](../docs/specs/README.md) |
 | PV O&M | 1% of PV capital/yr (whole-system framing only) |
 | Component lives | battery + hybrid inverter 10 yr (replaced together as one unit, since they share a life), PV 20 yr; SOH at EoL/replacement 80% (= 6000-EFC literature endpoint) |
 | Whole-system capex (4 kWp, 10 kWh) | £13,336 (PV £4,436 + battery-incl-inverter £8,900) |
@@ -95,14 +95,14 @@ data/
   agile-half-hour-actual-rates-01-01-2023_31-12-2023.csv                  # Octopus Agile 2023
 results/          # Outputs, figures, cached artefacts (e.g. stage2_schedule_2023.csv,
                   #   rules_comparison_table.csv, pvlive_cache_2023_pes18.csv)
-.github/specs/    # Spec backlog and per-spec acceptance criteria
+docs/specs/       # Spec backlog and per-spec acceptance criteria
 ```
 
 ## Development Stage
 
 **Current stage: v2 complete; NPV economic model added.** Annual rolling-horizon model at half-hourly resolution using real data, plus a lifetime NPV valuation (`src/economics.py`). Input validation (`validate_inputs.py`) and a rules-based controller benchmark (`run_rules_controller.py`) are also complete. All 32 unit tests pass. Baseline annual run complete for Glasgow.
 
-**What's next is tracked in the spec backlog, not as monolithic version bumps.** `.github/specs/README.md` is the authoritative list. Spec 01 (lifetime NPV model) is implemented and accepted; Spec 02 (unified degradation + capacity-fade, feeding a per-year saving stream into `compute_npv`) is next. Later specs cover the tariff layer, multi-location ingestion (south England / Midlands / Scotland, with API-based retrieval to replace manual CSV downloads), the parameter-sweep harness, and analysis figures.
+**What's next is tracked in the spec backlog, not as monolithic version bumps.** `docs/specs/README.md` is the authoritative list. Spec 01 (lifetime NPV model) is implemented and accepted; Spec 02 (unified degradation + capacity-fade, feeding a per-year saving stream into `compute_npv`) is next. Later specs cover the tariff layer, multi-location ingestion (south England / Midlands / Scotland, with API-based retrieval to replace manual CSV downloads), the parameter-sweep harness, and analysis figures.
 
 ## Established Scope Decisions
 

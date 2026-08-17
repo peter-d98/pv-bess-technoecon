@@ -10,7 +10,7 @@ nominal discount rate with real cash flows is a common and material error, so
 the convention is stated explicitly here and enforced by keeping a single
 consistent frame throughout.
 
-Conventions (see ``.github/specs/spec-01-verification.md``):
+Conventions (see ``docs/specs/spec-01-verification.md``):
 
 * The initial battery capex is incurred at ``t = 0`` (undiscounted).
 * The annual benefit accrues at the **end** of each year ``t = 1 .. N`` and is

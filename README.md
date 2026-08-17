@@ -55,7 +55,7 @@ price, a test that needs no capex decomposition and gives the same answer under 
 specifications. Optimal battery *size* is not identified by this study — it depends on the
 marginal price, and the bands constrain only the average. The capex specification and the
 evidence for it are in [`docs/results_summary.md`](docs/results_summary.md); the canonical
-assumption table is [`.github/specs/README.md`](.github/specs/README.md).
+assumption table is [`docs/specs/README.md`](docs/specs/README.md).
 
 ## Development Method
 
@@ -63,7 +63,7 @@ Work is planned and delivered with a lightweight **spec-driven agile loop**:
 interview to pin the real goal, break work into small compartmentalised specs
 with precise success criteria, verify each with an independent review gate, and
 loop until done. The spec backlog and per-spec acceptance criteria live in
-[.github/specs/](.github/specs/).
+[docs/specs/](docs/specs/).
 
 ## Repository Structure
 
@@ -74,7 +74,7 @@ results/        # Optimisation outputs and figures (gitignored)
 scripts/        # One-off data fetching and processing scripts
 src/            # Core model code (optimisation, battery, economics)
 tests/          # Unit tests
-.github/specs/  # Spec backlog and per-spec acceptance criteria
+docs/specs/  # Spec backlog and per-spec acceptance criteria
 ```
 
 ## Setup
@@ -125,5 +125,5 @@ See `requirements.txt`. Key packages:
   in the single most favourable cell studied it breaks even only at 81% of its observed
   installed cost.
 - **Next: Spec 07** — analysis figures (NPV frontier, viability heatmaps, tornado, peak
-  loads). See [.github/specs/](.github/specs/) and
+  loads). See [docs/specs/](docs/specs/) and
   [`docs/results_summary.md`](docs/results_summary.md).

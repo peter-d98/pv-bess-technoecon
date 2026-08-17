@@ -23,7 +23,7 @@ Two conventions are fixed and shared with the existing code:
   fades.
 
 All parameter defaults are proposed values requiring a literature citation in
-the dissertation (see ``.github/specs/spec-02-degradation-capacity-fade.md``
+the dissertation (see ``docs/specs/spec-02-degradation-capacity-fade.md``
 §10). The descriptive SOC-exposure metrics (:func:`soc_exposure`) require no
 literature coefficients; only the optional SOC-dependent calendar sensitivity
 does, and it is inert (``soc_stress_beta = 0``) by default.
